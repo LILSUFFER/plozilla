@@ -338,57 +338,87 @@ export function EquityCalculator() {
           
           for (let i = 0; i < batchAttempts && totalSamples < TARGET_SAMPLES; i++) {
             attempts++;
-            const usedCards = new Set(usedByBoard);
-            let validSample = true;
+            
+            // INDEPENDENT SAMPLING: sample each player from full deck (minus board)
+            // Then reject if hands conflict. This gives uniform distribution over valid pairs.
             const sampledHands: Card[][] = [];
+            let validSample = true;
             
             for (const p of validPlayers) {
-              let baseHand: Card[];
-              
               if (p.isRange && p.rangePattern) {
-                // Generate sample on-the-fly from pattern for better distribution
-                const hand = generateRandomHandFromPattern(p.rangePattern, usedCards);
+                // Generate random hand matching pattern (from full deck minus board only)
+                const hand = generateRandomHandFromPattern(p.rangePattern, usedByBoard);
                 if (!hand) {
                   validSample = false;
                   break;
                 }
-                baseHand = [...hand];
+                sampledHands.push(hand);
               } else if (p.isRange && p.rangeHands) {
-                // Fallback to pre-sampled hands if no pattern
-                const hand = getRandomHandFromRange(p.rangeHands, usedCards);
+                const hand = getRandomHandFromRange(p.rangeHands, usedByBoard);
                 if (!hand) {
                   validSample = false;
                   break;
                 }
-                baseHand = [...hand];
+                sampledHands.push(hand);
               } else {
-                if (p.cards.some(c => usedCards.has(`${c.rank}${c.suit}`))) {
+                // Specific hand
+                if (p.cards.some(c => usedByBoard.has(`${c.rank}${c.suit}`))) {
                   validSample = false;
                   break;
                 }
-                baseHand = [...p.cards];
-              }
-              
-              for (const c of baseHand) usedCards.add(`${c.rank}${c.suit}`);
-              
-              while (baseHand.length < 5) {
-                const available = fullDeck.filter(c => !usedCards.has(`${c.rank}${c.suit}`));
-                if (available.length === 0) {
+                const hand = [...p.cards];
+                // Fill incomplete hands from remaining deck
+                const used = new Set(usedByBoard);
+                for (const c of hand) used.add(`${c.rank}${c.suit}`);
+                while (hand.length < 5) {
+                  const available = fullDeck.filter(c => !used.has(`${c.rank}${c.suit}`));
+                  if (available.length === 0) {
+                    validSample = false;
+                    break;
+                  }
+                  const randomCard = available[Math.floor(Math.random() * available.length)];
+                  hand.push(randomCard);
+                  used.add(`${randomCard.rank}${randomCard.suit}`);
+                }
+                if (hand.length < 5) {
                   validSample = false;
                   break;
                 }
-                const randomCard = available[Math.floor(Math.random() * available.length)];
-                baseHand.push(randomCard);
-                usedCards.add(`${randomCard.rank}${randomCard.suit}`);
+                sampledHands.push(hand);
               }
-              
-              if (!validSample) break;
-              sampledHands.push(baseHand);
             }
             
             if (!validSample || sampledHands.length !== validPlayers.length) continue;
             
-            const randomBoard = board.length === 5 ? board : generateRandomBoard(usedCards);
+            // Check for conflicts between hands
+            const allHandCards = new Set<string>();
+            let hasConflict = false;
+            for (const hand of sampledHands) {
+              for (const c of hand) {
+                const key = `${c.rank}${c.suit}`;
+                if (allHandCards.has(key)) {
+                  hasConflict = true;
+                  break;
+                }
+                allHandCards.add(key);
+              }
+              if (hasConflict) break;
+            }
+            
+            if (hasConflict) continue;
+            
+            // Generate random board from remaining cards
+            const randomBoard = [...board];
+            const usedForBoard = new Set(allHandCards);
+            for (const c of board) usedForBoard.add(`${c.rank}${c.suit}`);
+            
+            while (randomBoard.length < 5) {
+              const available = fullDeck.filter(c => !usedForBoard.has(`${c.rank}${c.suit}`));
+              if (available.length === 0) break;
+              const randomCard = available[Math.floor(Math.random() * available.length)];
+              randomBoard.push(randomCard);
+              usedForBoard.add(`${randomCard.rank}${randomCard.suit}`);
+            }
             if (randomBoard.length < 5) continue;
             
             const sampledPlayers: PlayerInput[] = validPlayers.map((p, i) => ({

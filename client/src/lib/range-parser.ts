@@ -596,55 +596,120 @@ function generateSampleFromConstraint(
   return hand.length === HAND_SIZE ? hand : null;
 }
 
-// Weighted sampling: first choose how many of each required rank to include,
-// then sample the specific cards. This is efficient and maintains correct distribution.
+// Direct generation for simple rank patterns with proper uniform distribution
+// For "AA" we need uniform sampling over all hands with 2+ aces
 function generateWithRejectionSampling(
   rankRequirements: Map<string, number>,
   excludeCards: Set<string>
 ): Card[] | null {
   const hand: Card[] = [];
-  const used = new Set(Array.from(excludeCards));
+  const used = new Set(excludeCards);
   
-  // For each rank requirement, sample the number of cards to include (min to 4)
-  // with proper probability weighting
+  // Get all requirement entries
   const reqEntries = Array.from(rankRequirements.entries());
   
-  for (let i = 0; i < reqEntries.length; i++) {
-    const [rank, minCount] = reqEntries[i];
-    const availableSuits = SUITS.filter(s => !used.has(`${rank}${s}`));
-    
-    if (availableSuits.length < minCount) return null;
-    
-    // Calculate probabilities for each possible count (minCount to availableSuits.length)
-    // For simplicity and speed, just use the minimum count
-    // The remaining slots will be filled randomly and may include more of this rank
-    const shuffled = [...availableSuits].sort(() => Math.random() - 0.5);
-    const selectedSuits = shuffled.slice(0, minCount);
-    
-    for (const suit of selectedSuits) {
-      const card = createCard(rank, suit);
-      hand.push(card);
-      used.add(cardKey(card));
-    }
-  }
+  // Build lists of available cards for each rank and non-required ranks
+  const availableByRank = new Map<string, Card[]>();
+  const nonRequiredCards: Card[] = [];
+  const requiredRanks = new Set(reqEntries.map(e => e[0]));
   
-  // Fill remaining slots from ALL available cards (including more of the required ranks)
-  const available: Card[] = [];
   for (const rank of RANKS) {
+    const cards: Card[] = [];
     for (const suit of SUITS) {
       const key = `${rank}${suit}`;
       if (!used.has(key)) {
-        available.push(createCard(rank, suit));
+        const card = createCard(rank, suit);
+        cards.push(card);
+        if (!requiredRanks.has(rank)) {
+          nonRequiredCards.push(card);
+        }
       }
     }
+    availableByRank.set(rank, cards);
   }
   
-  // Shuffle and fill
-  const shuffled = [...available].sort(() => Math.random() - 0.5);
-  let idx = 0;
-  while (hand.length < HAND_SIZE && idx < shuffled.length) {
-    hand.push(shuffled[idx]);
-    idx++;
+  // For each required rank, check we have enough available
+  for (const [rank, minCount] of reqEntries) {
+    const available = availableByRank.get(rank) || [];
+    if (available.length < minCount) return null;
+  }
+  
+  // Calculate weights for each possible count of required cards
+  // For single rank (AA), weights are: C(4,2)*C(48,3), C(4,3)*C(48,2), C(4,4)*C(48,1)
+  if (reqEntries.length === 1) {
+    const [rank, minCount] = reqEntries[0];
+    const availableRankCards = availableByRank.get(rank) || [];
+    const numRankAvail = availableRankCards.length;
+    const numOther = nonRequiredCards.length;
+    
+    // Calculate weights for each possible count
+    const weights: number[] = [];
+    const counts: number[] = [];
+    
+    for (let count = minCount; count <= Math.min(numRankAvail, HAND_SIZE); count++) {
+      const otherNeeded = HAND_SIZE - count;
+      if (otherNeeded > numOther) continue;
+      
+      const weight = combinations(numRankAvail, count) * combinations(numOther, otherNeeded);
+      if (weight > 0) {
+        weights.push(weight);
+        counts.push(count);
+      }
+    }
+    
+    if (weights.length === 0) return null;
+    
+    // Weighted random selection of how many rank cards to include
+    const totalWeight = weights.reduce((a, b) => a + b, 0);
+    let rand = Math.random() * totalWeight;
+    let selectedCount = counts[0];
+    
+    for (let i = 0; i < weights.length; i++) {
+      rand -= weights[i];
+      if (rand <= 0) {
+        selectedCount = counts[i];
+        break;
+      }
+    }
+    
+    // Fisher-Yates shuffle for the rank cards and pick selectedCount
+    const shuffledRank = [...availableRankCards];
+    for (let i = shuffledRank.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffledRank[i], shuffledRank[j]] = [shuffledRank[j], shuffledRank[i]];
+    }
+    for (let i = 0; i < selectedCount; i++) {
+      hand.push(shuffledRank[i]);
+      used.add(cardKey(shuffledRank[i]));
+    }
+    
+    // Shuffle non-required cards and pick remaining
+    const shuffledOther = [...nonRequiredCards];
+    for (let i = shuffledOther.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffledOther[i], shuffledOther[j]] = [shuffledOther[j], shuffledOther[i]];
+    }
+    const otherNeeded = HAND_SIZE - hand.length;
+    for (let i = 0; i < otherNeeded && i < shuffledOther.length; i++) {
+      hand.push(shuffledOther[i]);
+    }
+  } else {
+    // For multiple rank requirements, use simpler approach
+    for (const [rank, minCount] of reqEntries) {
+      const availableRankCards = availableByRank.get(rank) || [];
+      const shuffled = [...availableRankCards].sort(() => Math.random() - 0.5);
+      for (let i = 0; i < minCount; i++) {
+        hand.push(shuffled[i]);
+        used.add(cardKey(shuffled[i]));
+      }
+    }
+    
+    // Fill remaining from non-required cards
+    const shuffledOther = nonRequiredCards.filter(c => !used.has(cardKey(c)));
+    shuffledOther.sort(() => Math.random() - 0.5);
+    while (hand.length < HAND_SIZE && shuffledOther.length > 0) {
+      hand.push(shuffledOther.shift()!);
+    }
   }
   
   return hand.length === HAND_SIZE ? hand : null;
