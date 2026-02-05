@@ -299,7 +299,7 @@ export function EquityCalculator() {
     
     if (hasRanges) {
       const runRangeCalculation = async () => {
-        const NUM_SAMPLES = 100000;
+        const NUM_SAMPLES = 600000;
         const BATCH_SIZE = 1000;
         const equityTotals: Record<number, number> = {};
         let totalSamples = 0;
@@ -592,12 +592,9 @@ export function EquityCalculator() {
         </div>
         
         {isCalculating && (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-sm">
-              <span>Calculating...</span>
-              <span>{progress.toFixed(0)}%</span>
-            </div>
-            <Progress value={progress} className="h-2" />
+          <div className="flex items-center gap-3 text-sm text-muted-foreground">
+            <Progress value={progress} className="h-1.5 flex-1 max-w-[200px]" />
+            <span className="tabular-nums">{progress.toFixed(0)}%</span>
           </div>
         )}
         
