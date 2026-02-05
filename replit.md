@@ -7,10 +7,14 @@ A browser-based 5-Card Omaha equity calculator similar to ProPokerTools Oracle. 
 ## Recent Changes (Feb 2026)
 - Implemented WebAssembly (AssemblyScript) poker hand evaluator for improved performance
 - Always exhaustive enumeration like ProPokerTools Oracle:
-  - Preflop (no board): 850,668 runouts in ~7s (exact match with ProPokerTools)
-  - Flop: ~10,000 runouts in ~100ms
-  - Turn/River: few hundred runouts in <10ms
-- WASM module with compact lookup tables for flush/straight detection
+  - Preflop (no board): 850,668 runouts in **~3.75s** (optimized from 11s)
+  - Flop: ~741 runouts in ~6ms
+  - Turn/River: few dozen runouts in <1ms
+- WASM optimizations:
+  - Sorting-based hand evaluation (no loops over 13 ranks)
+  - Global static arrays to avoid allocations in hot loops
+  - Lookup tables for flush/straight detection (8KB)
+  - @inline decorators on critical functions
 - Results match ProPokerTools Oracle exactly (52.128% vs 52.128%)
 - UI shows "X runouts (exact)" for all calculations
 - Added visible timing display showing calculation time
