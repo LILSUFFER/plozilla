@@ -11,7 +11,15 @@ interface Seat {
   vpip?: number;
 }
 
-const POSITION_COEFFICIENTS = [0.9, 0.8, 0.7, 1.5, 1.1, 0.9];
+const POSITION_NAMES = ['BB', 'UTG', 'MP', 'CO', 'BTN', 'SB'];
+const POSITION_COEFFICIENTS: Record<string, number> = {
+  'BTN': 1.5,
+  'CO': 1.1,
+  'MP': 0.7,
+  'UTG': 0.8,
+  'BB': 0.9,
+  'SB': 0.9,
+};
 
 const DEFAULT_SEATS: Seat[] = [
   { type: 'hero' },
@@ -28,11 +36,8 @@ export function TableEvAnalyzer() {
   const tableRake = 41;
 
   const heroSeatIndex = seats.findIndex(s => s.type === 'hero');
-
-  const getPositionCoefficient = (seatIndex: number): number => {
-    const offset = (seatIndex - heroSeatIndex + 6) % 6;
-    return POSITION_COEFFICIENTS[offset];
-  };
+  const heroPosition = POSITION_NAMES[heroSeatIndex];
+  const heroCoef = POSITION_COEFFICIENTS[heroPosition] || 1;
 
   const cyclePlayerType = (index: number) => {
     setSeats(prev => {
@@ -76,8 +81,6 @@ export function TableEvAnalyzer() {
     if (fishSeats.length === 0 || regsCount === 0) {
       return { totalEv: 0, contributions: [], regsCount };
     }
-
-    const heroCoef = getPositionCoefficient(heroSeatIndex);
     
     const contributions = fishSeats.map(({ seat, index }) => {
       const vpip = seat.vpip || 50;
@@ -92,7 +95,6 @@ export function TableEvAnalyzer() {
         fishLoss,
         lossAfterRake,
         sharePerReg,
-        heroCoef,
         evContribution,
       };
     });
@@ -100,7 +102,7 @@ export function TableEvAnalyzer() {
     const totalEv = contributions.reduce((sum, c) => sum + c.evContribution, 0);
 
     return { totalEv, contributions, regsCount };
-  }, [seats, heroRake, heroSeatIndex]);
+  }, [seats, heroRake, heroCoef]);
 
   const getPlayerColor = (type: PlayerType): string => {
     switch (type) {
@@ -182,7 +184,7 @@ export function TableEvAnalyzer() {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Position Coef:</span>
-                      <span className="font-medium">{contrib.heroCoef.toFixed(1)}x</span>
+                      <span className="font-medium">{heroCoef.toFixed(1)}x</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">My Rake:</span>
@@ -220,8 +222,10 @@ export function TableEvAnalyzer() {
             
             {seats.map((seat, index) => {
               const pos = seatPositions[index];
-              const coef = getPositionCoefficient(index);
+              const posName = POSITION_NAMES[index];
+              const coef = POSITION_COEFFICIENTS[posName];
               const isFish = seat.type === 'fish';
+              const isHero = seat.type === 'hero';
 
               return (
                 <div
@@ -229,9 +233,11 @@ export function TableEvAnalyzer() {
                   className="absolute transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-10"
                   style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
                 >
-                  <div className="text-xs font-medium text-muted-foreground mb-1">{coef.toFixed(1)}x</div>
+                  <div className={`text-xs font-medium mb-1 ${isHero ? 'text-blue-400' : 'text-muted-foreground'}`}>
+                    {coef.toFixed(1)}x
+                  </div>
                   <div
-                    className={`w-14 h-14 rounded-full ${getPlayerColor(seat.type)} flex flex-col items-center justify-center cursor-pointer shadow-lg transition-all duration-150 active:scale-95 ring-2 ring-white/20`}
+                    className={`w-14 h-14 rounded-full ${getPlayerColor(seat.type)} flex flex-col items-center justify-center cursor-pointer shadow-lg transition-all duration-150 active:scale-95 ring-2 ${isHero ? 'ring-blue-400' : 'ring-white/20'}`}
                     onClick={() => cyclePlayerType(index)}
                     data-testid={`seat-${index}`}
                   >
@@ -242,8 +248,9 @@ export function TableEvAnalyzer() {
                       <span className="text-white/90 text-[10px] font-medium">{seat.vpip}%</span>
                     )}
                   </div>
+                  <div className="text-[10px] text-muted-foreground mt-1">{posName}</div>
                   {isFish && (
-                    <div className="mt-2 w-20">
+                    <div className="mt-1 w-20">
                       <Slider
                         value={[seat.vpip || 50]}
                         onValueChange={([value]) => updateVpip(index, value)}
