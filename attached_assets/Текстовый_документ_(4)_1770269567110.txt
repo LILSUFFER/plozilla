@@ -1,0 +1,43 @@
+Poker Hand #OM269445742: PLO-5 ($0.05/$0.1) - 2026/02/02 07:43:11
+Table 'PLO-5Blue12' 6-max Seat #1 is the button
+Seat 1: 22f53a1b ($10 in chips)
+Seat 3: c7698d96 ($16.03 in chips)
+Seat 4: b8f472c5 ($21.69 in chips)
+Seat 5: dc91e635 ($5.88 in chips)
+Seat 6: Hero ($24.56 in chips)
+c7698d96: posts small blind $0.05
+b8f472c5: posts big blind $0.1
+*** HOLE CARDS ***
+Dealt to 22f53a1b
+Dealt to c7698d96
+Dealt to b8f472c5
+Dealt to dc91e635
+Dealt to Hero [Ks 8d Ah Kd Kh]
+dc91e635: calls $0.1
+Hero: folds
+22f53a1b: folds
+c7698d96: folds
+b8f472c5: raises $0.25 to $0.35
+dc91e635: calls $0.25
+*** FLOP *** [3s Ac 7d]
+b8f472c5: checks
+dc91e635: bets $0.75
+b8f472c5: calls $0.75
+*** TURN *** [3s Ac 7d] [3h]
+b8f472c5: checks
+dc91e635: checks
+*** RIVER *** [3s Ac 7d 3h] [9d]
+b8f472c5: bets $1.69
+dc91e635: calls $1.69
+b8f472c5: shows [Js 9c Qh Td 9s] (a full house, Nines full of Threes)
+dc91e635: shows [7h As 6s 2c Jc] (two pair, Aces and Sevens)
+*** SHOWDOWN ***
+b8f472c5 collected $5.26 from pot
+*** SUMMARY ***
+Total pot $5.63 | Rake $0.27 | Jackpot $0.1 | Bingo $0 | Fortune $0 | Tax $0
+Board [3s Ac 7d 3h 9d]
+Seat 1: 22f53a1b (button) folded before Flop (didn't bet)
+Seat 3: c7698d96 (small blind) folded before Flop
+Seat 4: b8f472c5 (big blind) showed [Js 9c Qh Td 9s] and won ($5.26) with a full house, Nines full of Threes
+Seat 5: dc91e635 showed [7h As 6s 2c Jc] and lost with two pair, Aces and Sevens
+Seat 6: Hero folded before Flop (didn't bet)

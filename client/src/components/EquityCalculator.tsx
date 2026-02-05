@@ -4,14 +4,16 @@ import { parseCardsConcat, type PlayerInput, type CalculationResult } from '@/li
 import { calculateEquityFast } from '@/lib/wasm-equity';
 import { getCachedEquity, setCachedEquity, getMemoryCacheSize } from '@/lib/equity-cache';
 import { parseRange, getRandomHandFromRange } from '@/lib/range-parser';
+import { parseHandHistory, getStreetBoard, getStreetName, type ParsedHandHistory } from '@/lib/hand-history-parser';
 import { Card as UICard, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { PlayingCard } from './PlayingCard';
-import { Play, Trash2, Plus, RotateCcw, Calculator } from 'lucide-react';
+import { Play, Trash2, Plus, RotateCcw, Calculator, ClipboardPaste } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface PlayerRowProps {
@@ -131,6 +133,9 @@ export function EquityCalculator() {
   const [resetKey, setResetKey] = useState(0);
   const [calcTime, setCalcTime] = useState<number | null>(null);
   const [isCached, setIsCached] = useState(false);
+  const [pasteDialogOpen, setPasteDialogOpen] = useState(false);
+  const [parsedHistory, setParsedHistory] = useState<ParsedHandHistory | null>(null);
+  const [pasteError, setPasteError] = useState<string | null>(null);
   
   const allUsedCards = new Set<string>();
   for (const card of board) {
@@ -210,6 +215,76 @@ export function EquityCalculator() {
     setResult(null);
     setProgress(0);
     setResetKey(k => k + 1);
+  };
+  
+  const handlePasteHand = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const parsed = parseHandHistory(text);
+      
+      if (!parsed) {
+        setPasteError('Не удалось распознать формат истории раздачи');
+        setParsedHistory(null);
+        setPasteDialogOpen(true);
+        return;
+      }
+      
+      if (parsed.availableStreets.length === 0) {
+        setPasteError('Не найдены руки игроков в истории');
+        setParsedHistory(null);
+        setPasteDialogOpen(true);
+        return;
+      }
+      
+      setPasteError(null);
+      setParsedHistory(parsed);
+      setPasteDialogOpen(true);
+    } catch (err) {
+      setPasteError('Не удалось прочитать буфер обмена. Разрешите доступ к буферу.');
+      setParsedHistory(null);
+      setPasteDialogOpen(true);
+    }
+  };
+  
+  const cardsToString = (cards: Card[]): string => {
+    return cards.map(c => `${c.rank}${c.suit}`).join('');
+  };
+  
+  const applyParsedHand = (street: 'preflop' | 'flop' | 'turn' | 'river') => {
+    if (!parsedHistory) return;
+    
+    const streetBoard = getStreetBoard(parsedHistory, street);
+    setBoardInput(cardsToString(streetBoard));
+    setBoard(streetBoard);
+    
+    const newPlayers: PlayerInput[] = parsedHistory.players
+      .filter(p => p.hand && p.hand.length === 5)
+      .slice(0, 7)
+      .map((p, i) => ({
+        id: i + 1,
+        cards: p.hand!,
+        input: cardsToString(p.hand!),
+        isRange: false
+      }));
+    
+    if (newPlayers.length < 2) {
+      if (parsedHistory.heroHand && parsedHistory.heroHand.length === 5) {
+        newPlayers.unshift({
+          id: 1,
+          cards: parsedHistory.heroHand,
+          input: cardsToString(parsedHistory.heroHand),
+          isRange: false
+        });
+      }
+      while (newPlayers.length < 2) {
+        newPlayers.push({ id: newPlayers.length + 1, cards: [], input: '' });
+      }
+    }
+    
+    setPlayers(newPlayers);
+    setResult(null);
+    setResetKey(k => k + 1);
+    setPasteDialogOpen(false);
   };
   
   const calculate = () => {
@@ -511,6 +586,15 @@ export function EquityCalculator() {
           </Button>
           <Button
             variant="outline"
+            onClick={handlePasteHand}
+            disabled={isCalculating}
+            data-testid="button-paste-hand"
+          >
+            <ClipboardPaste className="w-4 h-4 mr-1" />
+            Paste Hand
+          </Button>
+          <Button
+            variant="outline"
             onClick={clearAll}
             disabled={isCalculating}
             data-testid="button-clear"
@@ -592,6 +676,85 @@ export function EquityCalculator() {
             </div>
           </div>
         )}
+        
+        <Dialog open={pasteDialogOpen} onOpenChange={setPasteDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Импорт раздачи</DialogTitle>
+              <DialogDescription>
+                {pasteError 
+                  ? pasteError 
+                  : 'Выберите улицу для анализа'}
+              </DialogDescription>
+            </DialogHeader>
+            
+            {parsedHistory && !pasteError && (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Найденные руки:</Label>
+                  <div className="space-y-1 text-sm">
+                    {parsedHistory.players.map((p, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <span className={cn(
+                          'font-medium',
+                          p.isHero && 'text-green-600 dark:text-green-400'
+                        )}>
+                          {p.name}:
+                        </span>
+                        <span className="font-mono">
+                          {p.hand?.map(c => `${c.rank}${c.suit}`).join(' ')}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                
+                {parsedHistory.board.flop && (
+                  <div className="space-y-1">
+                    <Label className="text-sm font-medium">Борд:</Label>
+                    <div className="text-sm font-mono">
+                      {parsedHistory.board.flop.map(c => `${c.rank}${c.suit}`).join(' ')}
+                      {parsedHistory.board.turn && ` ${parsedHistory.board.turn.rank}${parsedHistory.board.turn.suit}`}
+                      {parsedHistory.board.river && ` ${parsedHistory.board.river.rank}${parsedHistory.board.river.suit}`}
+                    </div>
+                  </div>
+                )}
+                
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Выберите улицу:</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {parsedHistory.availableStreets.map(street => (
+                      <Button
+                        key={street}
+                        variant="outline"
+                        onClick={() => applyParsedHand(street)}
+                        className="w-full"
+                        data-testid={`button-street-${street}`}
+                      >
+                        {getStreetName(street)}
+                        {street !== 'preflop' && (
+                          <span className="ml-1 text-xs text-muted-foreground">
+                            ({street === 'flop' ? '3' : street === 'turn' ? '4' : '5'} карт)
+                          </span>
+                        )}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {pasteError && (
+              <Button 
+                variant="outline" 
+                onClick={() => setPasteDialogOpen(false)}
+                className="w-full"
+              >
+                Закрыть
+              </Button>
+            )}
+          </DialogContent>
+        </Dialog>
       </CardContent>
     </UICard>
   );
