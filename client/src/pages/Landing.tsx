@@ -22,7 +22,7 @@ export default function Landing() {
           <div className="flex items-center gap-3">
             <ThemeToggle />
             <Button asChild data-testid="button-app">
-              <a href="/api/login">
+              <a href="/api/auth/google">
                 APP
                 <ChevronRight className="w-4 h-4 ml-1" />
               </a>
@@ -47,8 +47,8 @@ export default function Landing() {
                 </p>
                 <div className="flex flex-wrap gap-4">
                   <Button size="lg" asChild data-testid="button-get-started">
-                    <a href="/api/login">
-                      Get Started Free
+                    <a href="/api/auth/google">
+                      Sign in with Google
                       <ChevronRight className="w-5 h-5 ml-1" />
                     </a>
                   </Button>

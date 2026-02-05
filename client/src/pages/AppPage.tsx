@@ -18,11 +18,11 @@ export default function AppPage() {
     if (!isLoading && !isAuthenticated) {
       toast({
         title: "Please log in",
-        description: "Redirecting to login...",
+        description: "Redirecting to Google login...",
         variant: "destructive",
       });
       setTimeout(() => {
-        window.location.href = "/api/login";
+        window.location.href = "/api/auth/google";
       }, 500);
     }
   }, [isLoading, isAuthenticated, toast]);
