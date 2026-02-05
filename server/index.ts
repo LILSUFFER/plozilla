@@ -22,6 +22,13 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
+// Enable SharedArrayBuffer for parallel WASM execution
+app.use((req, res, next) => {
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+  res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+  next();
+});
+
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
     hour: "numeric",

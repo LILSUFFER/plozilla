@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import { type Card, getSuitSymbol, getSuitColor, getRankDisplay } from '@/lib/poker-evaluator';
 import { parseCardsConcat, type PlayerInput, type CalculationResult } from '@/lib/equity-calculator';
 import { calculateEquityFast } from '@/lib/wasm-equity';
-import { calculateEquityParallel } from '@/lib/worker-pool';
+import { calculateEquityParallelWasm } from '@/lib/parallel-wasm-equity';
 import { Card as UICard, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -180,16 +180,18 @@ export function EquityCalculator() {
     
     setIsCalculating(true);
     
-    // Use requestAnimationFrame to allow UI to update before heavy calc
-    requestAnimationFrame(() => {
-      const start = performance.now();
+    // Use WASM for all calculations
+    const start = performance.now();
+    
+    // Use setTimeout to allow UI update before heavy calc
+    setTimeout(() => {
       const calcResult = calculateEquityFast(players, board);
       const elapsed = performance.now() - start;
-      console.log(`Equity calculation: ${elapsed.toFixed(0)}ms for ${calcResult.totalTrials} trials`);
+      console.log(`WASM: ${elapsed.toFixed(0)}ms for ${calcResult.totalTrials} trials`);
       setCalcTime(elapsed);
       setResult(calcResult);
       setIsCalculating(false);
-    });
+    }, 10);
   };
   
   const validPlayerCount = players.filter(p => p.cards.length >= 2 && p.cards.length <= 5).length;

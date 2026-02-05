@@ -7,12 +7,6 @@ export declare const memory: WebAssembly.Memory;
  */
 export declare function setHandRank(index: number, rank: number): void;
 /**
- * assembly/index/setHandRanksBatch
- * @param startIdx `i32`
- * @param values `~lib/staticarray/StaticArray<i32>`
- */
-export declare function setHandRanksBatch(startIdx: number, values: ArrayLike<number>): void;
-/**
  * assembly/index/markTableLoaded
  */
 export declare function markTableLoaded(): void;
@@ -102,3 +96,15 @@ export declare function getWins(playerIdx: number): number;
  * @returns `i32`
  */
 export declare function getTies(playerIdx: number): number;
+/**
+ * assembly/index/calculateExhaustiveRange
+ * @param startC0 `i32`
+ * @param endC0 `i32`
+ * @returns `i32`
+ */
+export declare function calculateExhaustiveRange(startC0: number, endC0: number): number;
+/**
+ * assembly/index/getMaxC0
+ * @returns `i32`
+ */
+export declare function getMaxC0(): number;

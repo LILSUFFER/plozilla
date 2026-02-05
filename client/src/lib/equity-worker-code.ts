@@ -14,21 +14,55 @@ const H2: [number, number][] = [[0,1],[0,2],[0,3],[0,4],[1,2],[1,3],[1,4],[2,3],
 const B3: [number, number, number][] = [[0,1,2],[0,1,3],[0,1,4],[0,2,3],[0,2,4],[0,3,4],[1,2,3],[1,2,4],[1,3,4],[2,3,4]];
 
 function getHandIndex(c0: number, c1: number, c2: number, c3: number, c4: number): number {
-  const arr = [c0, c1, c2, c3, c4].sort((a, b) => a - b);
-  return binomial[arr[0]][1] + binomial[arr[1]][2] + binomial[arr[2]][3] + binomial[arr[3]][4] + binomial[arr[4]][5];
+  let a = c0, b = c1, c = c2, d = c3, e = c4, t: number;
+  if (a > b) { t = a; a = b; b = t; }
+  if (c > d) { t = c; c = d; d = t; }
+  if (a > c) { t = a; a = c; c = t; }
+  if (b > d) { t = b; b = d; d = t; }
+  if (b > c) { t = b; b = c; c = t; }
+  if (a > b) { t = a; a = b; b = t; }
+  if (c > d) { t = c; c = d; d = t; }
+  if (d > e) { t = d; d = e; e = t; }
+  if (c > d) { t = c; c = d; d = t; }
+  if (b > c) { t = b; b = c; c = t; }
+  if (c > d) { t = c; c = d; d = t; }
+  return binomial[a][1] + binomial[b][2] + binomial[c][3] + binomial[d][4] + binomial[e][5];
+}
+
+const H2_0 = [0,0,0,0,1,1,1,2,2,3];
+const H2_1 = [1,2,3,4,2,3,4,3,4,4];
+const B3_0 = [0,0,0,0,0,0,1,1,1,2];
+const B3_1 = [1,1,1,2,2,3,2,2,3,3];
+const B3_2 = [2,3,4,3,4,4,3,4,4,4];
+
+function evalBest5(h0: number, h1: number, h2: number, h3: number, h4: number, b0: number, b1: number, b2: number, b3: number, b4: number): number {
+  if (!handRanks) return 0;
+  const h = [h0, h1, h2, h3, h4];
+  const b = [b0, b1, b2, b3, b4];
+  let best = 0;
+  for (let hi = 0; hi < 10; hi++) {
+    const hc0 = h[H2_0[hi]], hc1 = h[H2_1[hi]];
+    for (let bi = 0; bi < 10; bi++) {
+      const idx = getHandIndex(hc0, hc1, b[B3_0[bi]], b[B3_1[bi]], b[B3_2[bi]]);
+      const rank = handRanks[idx];
+      if (rank > best) best = rank;
+    }
+  }
+  return best;
 }
 
 function evalBest(hand: number[], board: number[]): number {
   if (!handRanks) return 0;
   let best = 0;
   const hLen = hand.length;
+  const b0 = board[0], b1 = board[1], b2 = board[2], b3 = board[3], b4 = board[4];
   
   for (let hi = 0; hi < 10; hi++) {
-    const [h0, h1] = H2[hi];
-    if (h0 >= hLen || h1 >= hLen) continue;
+    const i0 = H2_0[hi], i1 = H2_1[hi];
+    if (i0 >= hLen || i1 >= hLen) continue;
+    const hc0 = hand[i0], hc1 = hand[i1];
     for (let bi = 0; bi < 10; bi++) {
-      const [b0, b1, b2] = B3[bi];
-      const idx = getHandIndex(hand[h0], hand[h1], board[b0], board[b1], board[b2]);
+      const idx = getHandIndex(hc0, hc1, board[B3_0[bi]], board[B3_1[bi]], board[B3_2[bi]]);
       const rank = handRanks[idx];
       if (rank > best) best = rank;
     }
