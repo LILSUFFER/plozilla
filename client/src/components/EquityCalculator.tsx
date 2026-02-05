@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { type Card, getSuitSymbol, getSuitColor, getRankDisplay } from '@/lib/poker-evaluator';
+import { type Card } from '@/lib/poker-evaluator';
 import { parseCardsConcat, type PlayerInput, type CalculationResult } from '@/lib/equity-calculator';
 import { calculateEquityFast } from '@/lib/wasm-equity';
 import { getCachedEquity, setCachedEquity, getMemoryCacheSize } from '@/lib/equity-cache';
@@ -13,6 +13,7 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { PlayingCard } from './PlayingCard';
+import { CardChips } from './CardChip';
 import { Play, Trash2, Plus, RotateCcw, Calculator, ClipboardPaste } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -65,30 +66,18 @@ function PlayerRow({ player, onInputChange, onRemove, equity, isWinner, disabled
         />
       </div>
       
-      <div className="flex gap-0.5 min-w-[120px] items-center">
+      <div className="flex gap-0.5 min-w-[140px] items-center">
         {player.isRange ? (
           <Badge variant="secondary" className="text-xs" data-testid={`badge-combo-${player.id}`}>
             {player.comboCount} combos
           </Badge>
         ) : (
           <>
-            {player.cards.slice(0, 5).map((card, i) => (
-              <div 
-                key={i} 
-                className={cn(
-                  'w-6 h-8 flex flex-col items-center justify-center rounded text-[10px] font-bold border',
-                  'bg-white dark:bg-gray-100',
-                  getSuitColor(card.suit) === 'red' ? 'text-red-600' : 'text-gray-900'
-                )}
-              >
-                <span>{getRankDisplay(card.rank)}</span>
-                <span className="text-[8px]">{getSuitSymbol(card.suit)}</span>
-              </div>
-            ))}
+            <CardChips cards={player.cards.slice(0, 5)} size="sm" />
             {Array.from({ length: Math.max(0, 5 - player.cards.length) }).map((_, i) => (
               <div 
                 key={`empty-${i}`}
-                className="w-6 h-8 rounded border border-dashed border-muted-foreground/30 bg-muted/30"
+                className="w-6 h-7 rounded border border-dashed border-muted-foreground/30 bg-muted/30"
               />
             ))}
           </>
@@ -517,23 +506,11 @@ export function EquityCalculator() {
               data-testid="input-board"
             />
             <div className="flex gap-0.5 items-center">
-              {board.map((card, i) => (
-                <div 
-                  key={i} 
-                  className={cn(
-                    'w-8 h-11 flex flex-col items-center justify-center rounded border text-xs font-bold',
-                    'bg-white dark:bg-gray-100',
-                    getSuitColor(card.suit) === 'red' ? 'text-red-600' : 'text-gray-900'
-                  )}
-                >
-                  <span>{getRankDisplay(card.rank)}</span>
-                  <span className="text-[10px]">{getSuitSymbol(card.suit)}</span>
-                </div>
-              ))}
+              <CardChips cards={board} size="md" />
               {Array.from({ length: 5 - board.length }).map((_, i) => (
                 <div 
                   key={`empty-${i}`}
-                  className="w-8 h-11 rounded border border-dashed border-muted-foreground/30 bg-muted/30"
+                  className="w-7 h-8 rounded border border-dashed border-muted-foreground/30 bg-muted/30"
                 />
               ))}
             </div>
@@ -692,18 +669,16 @@ export function EquityCalculator() {
               <div className="space-y-4">
                 <div className="space-y-2">
                   <Label className="text-sm font-medium">Найденные руки:</Label>
-                  <div className="space-y-1 text-sm">
+                  <div className="space-y-2">
                     {parsedHistory.players.map((p, i) => (
                       <div key={i} className="flex items-center gap-2">
                         <span className={cn(
-                          'font-medium',
+                          'text-sm font-medium min-w-[80px]',
                           p.isHero && 'text-green-600 dark:text-green-400'
                         )}>
                           {p.name}:
                         </span>
-                        <span className="font-mono">
-                          {p.hand?.map(c => `${c.rank}${c.suit}`).join(' ')}
-                        </span>
+                        {p.hand && <CardChips cards={p.hand} size="sm" />}
                       </div>
                     ))}
                   </div>
@@ -712,11 +687,14 @@ export function EquityCalculator() {
                 {parsedHistory.board.flop && (
                   <div className="space-y-1">
                     <Label className="text-sm font-medium">Борд:</Label>
-                    <div className="text-sm font-mono">
-                      {parsedHistory.board.flop.map(c => `${c.rank}${c.suit}`).join(' ')}
-                      {parsedHistory.board.turn && ` ${parsedHistory.board.turn.rank}${parsedHistory.board.turn.suit}`}
-                      {parsedHistory.board.river && ` ${parsedHistory.board.river.rank}${parsedHistory.board.river.suit}`}
-                    </div>
+                    <CardChips 
+                      cards={[
+                        ...parsedHistory.board.flop,
+                        ...(parsedHistory.board.turn ? [parsedHistory.board.turn] : []),
+                        ...(parsedHistory.board.river ? [parsedHistory.board.river] : [])
+                      ]} 
+                      size="sm" 
+                    />
                   </div>
                 )}
                 
