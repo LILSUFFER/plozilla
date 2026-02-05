@@ -51,29 +51,41 @@ export default function AppPage() {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <header className="border-b bg-card sticky top-0 z-50">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between gap-4">
+        <div className="container mx-auto px-4 py-3 flex items-center justify-between gap-4">
           <a href="/" className="flex items-center gap-3">
             <img 
               src="/godzilla-logo.png" 
               alt="Plozilla Logo" 
-              className="w-10 h-10 rounded-lg"
+              className="w-9 h-9 rounded-lg"
             />
-            <div>
-              <h1 className="text-xl font-bold">Plozilla</h1>
-              <p className="text-xs text-muted-foreground hidden sm:block">5-Card Omaha Equity Calculator</p>
-            </div>
+            <h1 className="text-lg font-bold hidden sm:block">Plozilla</h1>
           </a>
-          <div className="flex items-center gap-3">
+          
+          <nav className="flex items-center gap-1">
+            {navItems.map((item) => (
+              <Link key={item.path} href={item.path}>
+                <Button 
+                  variant={location === item.path ? 'default' : 'ghost'}
+                  size="sm"
+                  className="flex items-center gap-2"
+                  data-testid={`nav-${item.label.toLowerCase().replace(' ', '-')}`}
+                >
+                  <item.icon className="w-4 h-4" />
+                  <span>{item.label}</span>
+                </Button>
+              </Link>
+            ))}
+          </nav>
+          
+          <div className="flex items-center gap-2">
             <ThemeToggle />
-            <div className="flex items-center gap-2">
-              <Avatar className="w-8 h-8">
-                <AvatarImage src={user?.profileImageUrl || undefined} alt={user?.firstName || 'User'} />
-                <AvatarFallback>{userInitials}</AvatarFallback>
-              </Avatar>
-              <Button variant="ghost" size="icon" onClick={() => logout()} data-testid="button-logout">
-                <LogOut className="w-4 h-4" />
-              </Button>
-            </div>
+            <Avatar className="w-8 h-8">
+              <AvatarImage src={user?.profileImageUrl || undefined} alt={user?.firstName || 'User'} />
+              <AvatarFallback>{userInitials}</AvatarFallback>
+            </Avatar>
+            <Button variant="ghost" size="icon" onClick={() => logout()} data-testid="button-logout">
+              <LogOut className="w-4 h-4" />
+            </Button>
           </div>
         </div>
       </header>
@@ -81,25 +93,6 @@ export default function AppPage() {
       <main className="container mx-auto px-4 py-6 flex-1">
         <EquityCalculator />
       </main>
-      
-      <footer className="border-t bg-card sticky bottom-0 z-50">
-        <div className="container mx-auto px-4 py-3">
-          <nav className="flex justify-center gap-2">
-            {navItems.map((item) => (
-              <Link key={item.path} href={item.path}>
-                <Button 
-                  variant={location === item.path ? 'default' : 'ghost'}
-                  className="flex items-center gap-2"
-                  data-testid={`nav-${item.label.toLowerCase().replace(' ', '-')}`}
-                >
-                  <item.icon className="w-4 h-4" />
-                  <span className="hidden sm:inline">{item.label}</span>
-                </Button>
-              </Link>
-            ))}
-          </nav>
-        </div>
-      </footer>
     </div>
   );
 }
