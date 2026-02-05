@@ -49,7 +49,7 @@ function PlayerRow({ player, onInputChange, onRemove, equity, isWinner, disabled
       hasError && 'border-destructive'
     )}>
       <div className="w-16 text-sm font-medium text-muted-foreground">
-        Player {player.id}
+        {player.id === 1 ? 'Hero' : `Player ${player.id}`}
       </div>
       
       <div className="flex-1">
@@ -246,28 +246,35 @@ export function EquityCalculator() {
     setBoardInput(cardsToString(streetBoard));
     setBoard(streetBoard);
     
-    const newPlayers: PlayerInput[] = parsedHistory.players
-      .filter(p => p.hand && p.hand.length === 5)
-      .slice(0, 7)
-      .map((p, i) => ({
-        id: i + 1,
+    const newPlayers: PlayerInput[] = [];
+    
+    // Hero always goes first (id=1)
+    if (parsedHistory.heroHand && parsedHistory.heroHand.length === 5) {
+      newPlayers.push({
+        id: 1,
+        cards: parsedHistory.heroHand,
+        input: cardsToString(parsedHistory.heroHand),
+        isRange: false
+      });
+    }
+    
+    // Add other players (excluding hero duplicates)
+    const otherPlayers = parsedHistory.players
+      .filter(p => p.hand && p.hand.length === 5 && !p.isHero)
+      .slice(0, 6);
+    
+    for (const p of otherPlayers) {
+      newPlayers.push({
+        id: newPlayers.length + 1,
         cards: p.hand!,
         input: cardsToString(p.hand!),
         isRange: false
-      }));
+      });
+    }
     
-    if (newPlayers.length < 2) {
-      if (parsedHistory.heroHand && parsedHistory.heroHand.length === 5) {
-        newPlayers.unshift({
-          id: 1,
-          cards: parsedHistory.heroHand,
-          input: cardsToString(parsedHistory.heroHand),
-          isRange: false
-        });
-      }
-      while (newPlayers.length < 2) {
-        newPlayers.push({ id: newPlayers.length + 1, cards: [], input: '' });
-      }
+    // Ensure at least 2 players (add empty slots if needed)
+    while (newPlayers.length < 2) {
+      newPlayers.push({ id: newPlayers.length + 1, cards: [], input: '' });
     }
     
     setPlayers(newPlayers);
@@ -621,7 +628,7 @@ export function EquityCalculator() {
                   <div key={r.playerId} className="space-y-1">
                     <div className="flex items-center justify-between text-sm">
                       <span className={cn(isWinner && 'font-bold text-green-500')}>
-                        Player {r.playerId}: {player?.input || 'N/A'}
+                        {r.playerId === 1 ? 'Hero' : `Player ${r.playerId}`}: {player?.input || 'N/A'}
                       </span>
                       <span className={cn('font-mono font-bold', isWinner && 'text-green-500')}>
                         {r.equity.toFixed(4)}%
