@@ -300,37 +300,35 @@ const tempHS = new StaticArray<i32>(5);
 const tempBR = new StaticArray<i32>(5);
 const tempBS = new StaticArray<i32>(5);
 
-// Inlined evalPlayerBest for maximum speed
+// Optimized evalPlayerBest with small loops
 @inline function evalPlayerBestInline(pIdx: i32, b0: i32, b1: i32, b2: i32, b3: i32, b4: i32): i32 {
-  const hLen: i32 = unchecked(playerLens[pIdx]);
   const hBase: i32 = pIdx * 5;
   let best: i32 = 0;
   
-  // Extract hand ranks and suits into global arrays
+  // Extract hand cards
   const h0c: i32 = unchecked(playerHands[hBase]);
   const h1c: i32 = unchecked(playerHands[hBase + 1]);
   const h2c: i32 = unchecked(playerHands[hBase + 2]);
   const h3c: i32 = unchecked(playerHands[hBase + 3]);
   const h4c: i32 = unchecked(playerHands[hBase + 4]);
   
+  // Store in global arrays
   unchecked(tempHR[0] = h0c >> 2); unchecked(tempHS[0] = h0c & 3);
   unchecked(tempHR[1] = h1c >> 2); unchecked(tempHS[1] = h1c & 3);
   unchecked(tempHR[2] = h2c >> 2); unchecked(tempHS[2] = h2c & 3);
   unchecked(tempHR[3] = h3c >> 2); unchecked(tempHS[3] = h3c & 3);
   unchecked(tempHR[4] = h4c >> 2); unchecked(tempHS[4] = h4c & 3);
   
-  // Extract board ranks and suits
   unchecked(tempBR[0] = b0 >> 2); unchecked(tempBS[0] = b0 & 3);
   unchecked(tempBR[1] = b1 >> 2); unchecked(tempBS[1] = b1 & 3);
   unchecked(tempBR[2] = b2 >> 2); unchecked(tempBS[2] = b2 & 3);
   unchecked(tempBR[3] = b3 >> 2); unchecked(tempBS[3] = b3 & 3);
   unchecked(tempBR[4] = b4 >> 2); unchecked(tempBS[4] = b4 & 3);
   
-  // 10 combinations of 2 from hand x 10 combinations of 3 from board = 100 combos
+  // 10 x 10 = 100 combinations with small loops
   for (let hi: i32 = 0; hi < 10; hi++) {
     const hi0: i32 = unchecked(H2_0[hi]);
     const hi1: i32 = unchecked(H2_1[hi]);
-    if (hi0 >= hLen || hi1 >= hLen) continue;
     
     const hr0: i32 = unchecked(tempHR[hi0]);
     const hr1: i32 = unchecked(tempHR[hi1]);
