@@ -1,4 +1,4 @@
-// Equity calculator with Monte Carlo for large calculations
+// Fast equity calculator - 30k samples
 
 interface Card { rank: string; suit: string; }
 interface PlayerInput { id: number; cards: Card[]; input: string; }
@@ -14,8 +14,7 @@ const SUIT_MAP: Record<string, number> = { 'c': 0, 'd': 1, 'h': 2, 's': 3 };
 const H2 = [[0,1],[0,2],[0,3],[0,4],[1,2],[1,3],[1,4],[2,3],[2,4],[3,4]];
 const B3 = [[0,1,2],[0,1,3],[0,1,4],[0,2,3],[0,2,4],[0,3,4],[1,2,3],[1,2,4],[1,3,4],[2,3,4]];
 
-const MONTE_CARLO_THRESHOLD = 10000;
-const MONTE_CARLO_SAMPLES = 200000;
+const SAMPLES = 10000;
 
 function eval5(r0: number, r1: number, r2: number, r3: number, r4: number,
                s0: number, s1: number, s2: number, s3: number, s4: number): number {
@@ -77,176 +76,89 @@ function eval5(r0: number, r1: number, r2: number, r3: number, r4: number,
   return sorted[0] * 50625 + sorted[1] * 3375 + sorted[2] * 225 + sorted[3] * 15 + sorted[4];
 }
 
-function shuffle(arr: number[], n: number): void {
-  for (let i = n - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
-  }
-}
-
 function calculateEquity(players: PlayerInput[], board: Card[]): CalculationResult {
-  const validPlayers = players.filter(p => p.cards.length >= 2 && p.cards.length <= 5);
-  if (validPlayers.length < 2) return { results: [], totalTrials: 0, isExhaustive: true };
+  const vp = players.filter(p => p.cards.length >= 2 && p.cards.length <= 5);
+  if (vp.length < 2) return { results: [], totalTrials: 0, isExhaustive: true };
   
-  const numPlayers = validPlayers.length;
-  const playerRanks: number[][] = [];
-  const playerSuits: number[][] = [];
+  const np = vp.length;
+  const pR: number[][] = [], pS: number[][] = [];
   const used = new Set<string>();
   
-  for (const p of validPlayers) {
+  for (const p of vp) {
     const r: number[] = [], s: number[] = [];
     for (const c of p.cards) {
-      r.push(RANK_VALUES[c.rank]);
-      s.push(SUIT_MAP[c.suit]);
+      r.push(RANK_VALUES[c.rank]); s.push(SUIT_MAP[c.suit]);
       used.add(`${c.rank}${c.suit}`);
     }
-    playerRanks.push(r);
-    playerSuits.push(s);
+    pR.push(r); pS.push(s);
   }
   
-  const boardR: number[] = [], boardS: number[] = [];
+  const bR: number[] = [], bS: number[] = [];
   for (const c of board) {
-    boardR.push(RANK_VALUES[c.rank]);
-    boardS.push(SUIT_MAP[c.suit]);
+    bR.push(RANK_VALUES[c.rank]); bS.push(SUIT_MAP[c.suit]);
     used.add(`${c.rank}${c.suit}`);
   }
   
-  const RANKS = ['2','3','4','5','6','7','8','9','T','J','Q','K','A'];
-  const SUITS = ['c','d','h','s'];
-  const deckR: number[] = [], deckS: number[] = [];
-  for (const r of RANKS) for (const s of SUITS) 
-    if (!used.has(`${r}${s}`)) { deckR.push(RANK_VALUES[r]); deckS.push(SUIT_MAP[s]); }
+  const dR: number[] = [], dS: number[] = [];
+  for (const r of ['2','3','4','5','6','7','8','9','T','J','Q','K','A'])
+    for (const s of ['c','d','h','s'])
+      if (!used.has(`${r}${s}`)) { dR.push(RANK_VALUES[r]); dS.push(SUIT_MAP[s]); }
   
-  const cardsNeeded = 5 - board.length;
-  const deckLen = deckR.length;
+  const cn = 5 - board.length, dl = dR.length;
+  const wins = new Uint32Array(np), ties = new Uint32Array(np);
   
-  let totalTrials = 1;
-  if (cardsNeeded > 0) {
-    let num = 1;
-    for (let i = 0; i < cardsNeeded; i++) num *= (deckLen - i);
-    for (let i = 2; i <= cardsNeeded; i++) num /= i;
-    totalTrials = Math.round(num);
-  }
-  
-  const useMonteCarlo = totalTrials > MONTE_CARLO_THRESHOLD;
-  const actualTrials = useMonteCarlo ? MONTE_CARLO_SAMPLES : totalTrials;
-  
-  const wins = new Array(numPlayers).fill(0);
-  const ties = new Array(numPlayers).fill(0);
-  let processed = 0;
-  const progressInterval = Math.max(1, Math.floor(actualTrials / 20));
-  
-  const evalOmaha = (pIdx: number, br: number[], bs: number[]): number => {
-    const hr = playerRanks[pIdx], hs = playerSuits[pIdx], hLen = hr.length;
+  const evalOmaha = (pIdx: number, fR: number[], fS: number[]): number => {
+    const hr = pR[pIdx], hs = pS[pIdx], hl = hr.length;
     let best = 0;
     for (let hi = 0; hi < 10; hi++) {
       const [h0, h1] = H2[hi];
-      if (h0 >= hLen || h1 >= hLen) continue;
+      if (h0 >= hl || h1 >= hl) continue;
       for (let bi = 0; bi < 10; bi++) {
         const [b0, b1, b2] = B3[bi];
-        const sc = eval5(hr[h0], hr[h1], br[b0], br[b1], br[b2],
-                         hs[h0], hs[h1], bs[b0], bs[b1], bs[b2]);
+        const sc = eval5(hr[h0], hr[h1], fR[b0], fR[b1], fR[b2],
+                         hs[h0], hs[h1], fS[b0], fS[b1], fS[b2]);
         if (sc > best) best = sc;
       }
     }
     return best;
   };
   
-  const scores = new Array(numPlayers);
+  const scores = new Uint32Array(np);
+  const indices = Array.from({ length: dl }, (_, i) => i);
+  const fR = [...bR], fS = [...bS];
+  for (let i = 0; i < cn; i++) { fR.push(0); fS.push(0); }
   
-  const updateWinners = () => {
-    let mx = 0;
-    for (let p = 0; p < numPlayers; p++) if (scores[p] > mx) mx = scores[p];
-    let wc = 0;
-    for (let p = 0; p < numPlayers; p++) if (scores[p] === mx) wc++;
-    for (let p = 0; p < numPlayers; p++) 
-      if (scores[p] === mx) { if (wc === 1) wins[p]++; else ties[p]++; }
-  };
-  
-  if (useMonteCarlo) {
-    const indices = Array.from({ length: deckLen }, (_, i) => i);
-    const fR = [...boardR], fS = [...boardS];
-    for (let i = 0; i < cardsNeeded; i++) { fR.push(0); fS.push(0); }
+  for (let trial = 0; trial < SAMPLES; trial++) {
+    // Partial Fisher-Yates
+    for (let i = 0; i < cn; i++) {
+      const j = i + Math.floor(Math.random() * (dl - i));
+      const t = indices[i]; indices[i] = indices[j]; indices[j] = t;
+    }
+    for (let i = 0; i < cn; i++) {
+      fR[board.length + i] = dR[indices[i]];
+      fS[board.length + i] = dS[indices[i]];
+    }
     
-    for (let trial = 0; trial < MONTE_CARLO_SAMPLES; trial++) {
-      shuffle(indices, deckLen);
-      for (let i = 0; i < cardsNeeded; i++) {
-        fR[board.length + i] = deckR[indices[i]];
-        fS[board.length + i] = deckS[indices[i]];
-      }
-      for (let p = 0; p < numPlayers; p++) scores[p] = evalOmaha(p, fR, fS);
-      updateWinners();
-      if (++processed % progressInterval === 0) 
-        self.postMessage({ type: 'progress', progress: processed / actualTrials });
-    }
-  } else if (cardsNeeded === 0) {
-    for (let p = 0; p < numPlayers; p++) scores[p] = evalOmaha(p, boardR, boardS);
-    updateWinners();
-    processed = 1;
-  } else if (cardsNeeded === 2) {
-    const fR = [...boardR, 0, 0], fS = [...boardS, 0, 0];
-    for (let i = 0; i < deckLen - 1; i++) {
-      fR[3] = deckR[i]; fS[3] = deckS[i];
-      for (let j = i + 1; j < deckLen; j++) {
-        fR[4] = deckR[j]; fS[4] = deckS[j];
-        for (let p = 0; p < numPlayers; p++) scores[p] = evalOmaha(p, fR, fS);
-        updateWinners();
-        if (++processed % progressInterval === 0) 
-          self.postMessage({ type: 'progress', progress: processed / actualTrials });
-      }
-    }
-  } else if (cardsNeeded === 5) {
-    const fR = [0,0,0,0,0], fS = [0,0,0,0,0];
-    for (let a = 0; a < deckLen - 4; a++) {
-      fR[0] = deckR[a]; fS[0] = deckS[a];
-      for (let b = a + 1; b < deckLen - 3; b++) {
-        fR[1] = deckR[b]; fS[1] = deckS[b];
-        for (let c = b + 1; c < deckLen - 2; c++) {
-          fR[2] = deckR[c]; fS[2] = deckS[c];
-          for (let d = c + 1; d < deckLen - 1; d++) {
-            fR[3] = deckR[d]; fS[3] = deckS[d];
-            for (let e = d + 1; e < deckLen; e++) {
-              fR[4] = deckR[e]; fS[4] = deckS[e];
-              for (let p = 0; p < numPlayers; p++) scores[p] = evalOmaha(p, fR, fS);
-              updateWinners();
-              if (++processed % progressInterval === 0) 
-                self.postMessage({ type: 'progress', progress: processed / actualTrials });
-            }
-          }
-        }
-      }
-    }
-  } else {
-    const idx: number[] = []; for (let i = 0; i < cardsNeeded; i++) idx.push(i);
-    const fR = [...boardR], fS = [...boardS];
-    for (let i = 0; i < cardsNeeded; i++) { fR.push(0); fS.push(0); }
-    while (true) {
-      for (let i = 0; i < cardsNeeded; i++) {
-        fR[board.length + i] = deckR[idx[i]];
-        fS[board.length + i] = deckS[idx[i]];
-      }
-      for (let p = 0; p < numPlayers; p++) scores[p] = evalOmaha(p, fR, fS);
-      updateWinners();
-      if (++processed % progressInterval === 0) 
-        self.postMessage({ type: 'progress', progress: processed / actualTrials });
-      let i = cardsNeeded - 1;
-      while (i >= 0 && idx[i] === deckLen - cardsNeeded + i) i--;
-      if (i < 0) break;
-      idx[i]++;
-      for (let j = i + 1; j < cardsNeeded; j++) idx[j] = idx[j - 1] + 1;
-    }
+    for (let p = 0; p < np; p++) scores[p] = evalOmaha(p, fR, fS);
+    
+    let mx = 0;
+    for (let p = 0; p < np; p++) if (scores[p] > mx) mx = scores[p];
+    let wc = 0;
+    for (let p = 0; p < np; p++) if (scores[p] === mx) wc++;
+    for (let p = 0; p < np; p++) 
+      if (scores[p] === mx) { if (wc === 1) wins[p]++; else ties[p]++; }
+    
+    if (trial % 5000 === 0) 
+      self.postMessage({ type: 'progress', progress: trial / SAMPLES });
   }
   
   return {
-    results: validPlayers.map((p, i) => ({
-      playerId: p.id,
-      wins: wins[i],
-      ties: ties[i],
-      total: processed,
-      equity: processed > 0 ? ((wins[i] + ties[i] / 2) / processed) * 100 : 0
+    results: vp.map((p, i) => ({
+      playerId: p.id, wins: wins[i], ties: ties[i], total: SAMPLES,
+      equity: ((wins[i] + ties[i] / 2) / SAMPLES) * 100
     })),
-    totalTrials: useMonteCarlo ? MONTE_CARLO_SAMPLES : totalTrials,
-    isExhaustive: !useMonteCarlo
+    totalTrials: SAMPLES,
+    isExhaustive: false
   };
 }
 
