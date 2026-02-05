@@ -5,10 +5,19 @@
 A browser-based 5-Card Omaha equity calculator similar to ProPokerTools Oracle. The calculator supports board input (0-5 cards), multiple player hands (5 cards each), concatenated card notation (e.g., "7s6hJdQc8c"), and performs exhaustive equity calculations with accurate Omaha hand evaluation (exactly 2 hole cards + 3 board cards). Built as a client-side React TypeScript application.
 
 ## Recent Changes (Feb 2026)
-- **Range Syntax Support**: ProPokerTools-style range notation
-  - Syntax: AA, KK+, AK$s (suited), AK$o (offsuit), comma-separated
-  - Partial hands (2 cards) are filled with random cards for PLO5
-  - Uses Monte Carlo sampling (200 samples) for range calculations
+- **Full ProPokerTools Range Syntax Support**: Complete Generic Syntax implementation
+  - **Hand counting**: AA = 108,336 hands (all 5-card hands with at least 2 aces)
+  - **Suit variables**: x, y, z, w for suited patterns (AxAyxy = double-suited aces)
+  - **Rank variables**: R, O, N for patterns (RRON = one pair hand)
+  - **Wildcards**: * for any card
+  - **Combining**: comma (OR), colon (AND), bang (NOT) operators
+  - **Rank spans**: KQJT-T987, KK+, T8+, 664-
+  - **Rank brackets**: [A-J], [2,3,4], [A,2,3,4,5]
+  - **No-pair constraint**: curly braces {AKQJ} for unpaired cards
+  - **Built-in macros**: $ds (double-suited), $ss (single-suited), $np (no pairs), $B (big), $M (middle), $Z (small), $L (low), $W (wheel), $R (broadway), $F (face), $0g/$1g/$2g (gap rundowns)
+  - **Weighted ranges**: AA@10, KK@8 for frequency weighting
+  - **Percent ranges**: 15%, 5%-10% (approximate counts)
+  - Uses Monte Carlo sampling for range calculations
   - UI shows "X combos" badge for ranges
 - **IndexedDB Caching with Suit Canonicalization**: 2-player preflop results are cached
   - First calculation: ~4-5s for 850,668 runouts
