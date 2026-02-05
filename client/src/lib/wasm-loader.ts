@@ -11,6 +11,8 @@ export interface WasmExports {
   buildDeck(usedMaskLow: number, usedMaskHigh: number): void;
   setSeed(s: number): void;
   calculate(numTrials: number): void;
+  calculateExhaustive(): number;
+  getDeckLen(): number;
   getWins(playerIdx: number): number;
   getTies(playerIdx: number): number;
   memory: WebAssembly.Memory;

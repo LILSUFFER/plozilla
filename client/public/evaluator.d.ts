@@ -60,6 +60,16 @@ export declare function setSeed(s: number): void;
  */
 export declare function calculate(numTrials: number): void;
 /**
+ * assembly/index/calculateExhaustive
+ * @returns `i32`
+ */
+export declare function calculateExhaustive(): number;
+/**
+ * assembly/index/getDeckLen
+ * @returns `i32`
+ */
+export declare function getDeckLen(): number;
+/**
  * assembly/index/getWins
  * @param playerIdx `i32`
  * @returns `i32`

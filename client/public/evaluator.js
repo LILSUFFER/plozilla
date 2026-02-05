@@ -41,6 +41,8 @@ export const {
   buildDeck,
   setSeed,
   calculate,
+  calculateExhaustive,
+  getDeckLen,
   getWins,
   getTies,
 } = await (async url => instantiate(

@@ -320,7 +320,7 @@ export function EquityCalculator() {
                   </Badge>
                 )}
                 <Badge variant="secondary" data-testid="badge-trials">
-                  {result.totalTrials.toLocaleString()} trials
+                  {result.totalTrials.toLocaleString()} {result.isExhaustive ? 'runouts (exact)' : 'trials'}
                 </Badge>
               </div>
             </div>

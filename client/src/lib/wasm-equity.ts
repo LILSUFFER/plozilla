@@ -26,7 +26,20 @@ export interface CalculationResult {
 const RC: Record<string, number> = {'2':0,'3':1,'4':2,'5':3,'6':4,'7':5,'8':6,'9':7,'T':8,'J':9,'Q':10,'K':11,'A':12};
 const SC: Record<string, number> = {'c':0,'d':1,'h':2,'s':3};
 
-const TRIALS = 430000;
+// Calculate combinations C(n, k)
+function combinations(n: number, k: number): number {
+  if (k > n || k < 0) return 0;
+  if (k === 0 || k === n) return 1;
+  let result = 1;
+  for (let i = 0; i < k; i++) {
+    result = result * (n - i) / (i + 1);
+  }
+  return Math.round(result);
+}
+
+// Threshold for exhaustive vs Monte Carlo (like ProPokerTools)
+const EXHAUSTIVE_THRESHOLD = 50000;
+const DEFAULT_MONTE_CARLO_TRIALS = 100000;
 
 function encodeCard(card: Card): number {
   return RC[card.rank] * 4 + SC[card.suit];
@@ -76,6 +89,7 @@ function calculateWithWasm(
   // Build used cards mask (two 32-bit integers for WASM)
   let usedLow = 0;
   let usedHigh = 0;
+  let usedCount = 0;
   
   // Set player hands
   wasm.setNumPlayers(np);
@@ -87,6 +101,7 @@ function calculateWithWasm(
       wasm.setPlayerHand(p, i, enc);
       if (enc < 32) usedLow |= 1 << enc;
       else usedHigh |= 1 << (enc - 32);
+      usedCount++;
     }
   }
   
@@ -97,18 +112,33 @@ function calculateWithWasm(
     wasm.setBoardCard(i, enc);
     if (enc < 32) usedLow |= 1 << enc;
     else usedHigh |= 1 << (enc - 32);
+    usedCount++;
   }
   
   // Build deck
-  const low = usedLow;
-  const high = usedHigh;
-  wasm.buildDeck(low, high);
+  wasm.buildDeck(usedLow, usedHigh);
   
-  // Set random seed
-  wasm.setSeed(Date.now() | 0);
+  // Calculate number of runouts to decide exhaustive vs Monte Carlo
+  const cardsNeeded = 5 - board.length;
+  const deckSize = 52 - usedCount;
+  const totalRunouts = combinations(deckSize, cardsNeeded);
   
-  // Run calculation
-  wasm.calculate(TRIALS);
+  let actualTrials: number;
+  let isExhaustive: boolean;
+  
+  if (cardsNeeded <= 2 && totalRunouts <= EXHAUSTIVE_THRESHOLD) {
+    // Use exhaustive enumeration for turn/river
+    actualTrials = wasm.calculateExhaustive();
+    isExhaustive = true;
+    console.log(`Exhaustive: ${actualTrials} runouts`);
+  } else {
+    // Use Monte Carlo for flop/preflop
+    wasm.setSeed(Date.now() | 0);
+    actualTrials = Math.min(totalRunouts, DEFAULT_MONTE_CARLO_TRIALS);
+    wasm.calculate(actualTrials);
+    isExhaustive = false;
+    console.log(`Monte Carlo: ${actualTrials} trials (${totalRunouts} possible)`);
+  }
   
   // Get results
   const results: EquityResult[] = vp.map((p, i) => {
@@ -118,15 +148,15 @@ function calculateWithWasm(
       playerId: p.id,
       wins,
       ties,
-      total: TRIALS,
-      equity: ((wins + ties / 2) / TRIALS) * 100
+      total: actualTrials,
+      equity: ((wins + ties / 2) / actualTrials) * 100
     };
   });
   
   return {
     results,
-    totalTrials: TRIALS,
-    isExhaustive: false
+    totalTrials: actualTrials,
+    isExhaustive
   };
 }
 
@@ -218,7 +248,14 @@ function calculateEquityJS(players: PlayerInput[], board: Card[]): CalculationRe
   const fb = new Uint8Array(5);
   for (let i = 0; i < board.length; i++) fb[i] = bc[i];
   
-  for (let trial = 0; trial < TRIALS; trial++) {
+  // Calculate number of runouts
+  const totalRunouts = combinations(dl, cn);
+  const numTrials = cn <= 2 && totalRunouts <= EXHAUSTIVE_THRESHOLD 
+    ? totalRunouts 
+    : Math.min(totalRunouts, DEFAULT_MONTE_CARLO_TRIALS);
+  const isExhaustive = cn <= 2 && totalRunouts <= EXHAUSTIVE_THRESHOLD;
+  
+  for (let trial = 0; trial < numTrials; trial++) {
     for (let i = 0; i < cn; i++) {
       const j = i + ((Math.random() * (dl - i)) | 0);
       const t = deck[i]; deck[i] = deck[j]; deck[j] = t;
@@ -257,10 +294,10 @@ function calculateEquityJS(players: PlayerInput[], board: Card[]): CalculationRe
       playerId: p.id,
       wins: wins[i],
       ties: ties[i],
-      total: TRIALS,
-      equity: ((wins[i] + ties[i] / 2) / TRIALS) * 100
+      total: numTrials,
+      equity: ((wins[i] + ties[i] / 2) / numTrials) * 100
     })),
-    totalTrials: TRIALS,
-    isExhaustive: false
+    totalTrials: numTrials,
+    isExhaustive
   };
 }

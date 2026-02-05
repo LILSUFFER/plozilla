@@ -438,6 +438,97 @@ export function calculate(numTrials: i32): void {
   }
 }
 
+// Exhaustive calculation - enumerate all runouts
+export function calculateExhaustive(): i32 {
+  const cardsNeeded: i32 = 5 - boardLen;
+  const fullBoard = new StaticArray<i32>(5);
+  
+  for (let i: i32 = 0; i < boardLen; i++) {
+    unchecked(fullBoard[i] = board[i]);
+  }
+  
+  for (let p: i32 = 0; p < numPlayers; p++) {
+    unchecked(wins[p] = 0);
+    unchecked(ties[p] = 0);
+  }
+  
+  let totalRunouts: i32 = 0;
+  
+  if (cardsNeeded === 0) {
+    totalRunouts = 1;
+    let maxScore: i32 = 0;
+    for (let p: i32 = 0; p < numPlayers; p++) {
+      const sc: i32 = evalPlayerBest(p, fullBoard);
+      unchecked(scores[p] = sc);
+      if (sc > maxScore) maxScore = sc;
+    }
+    let winCount: i32 = 0;
+    for (let p: i32 = 0; p < numPlayers; p++) {
+      if (unchecked(scores[p]) === maxScore) winCount++;
+    }
+    for (let p: i32 = 0; p < numPlayers; p++) {
+      if (unchecked(scores[p]) === maxScore) {
+        if (winCount === 1) unchecked(wins[p] = 1);
+        else unchecked(ties[p] = 1);
+      }
+    }
+  } else if (cardsNeeded === 1) {
+    for (let c0: i32 = 0; c0 < deckLen; c0++) {
+      unchecked(fullBoard[boardLen] = deck[c0]);
+      totalRunouts++;
+      let maxScore: i32 = 0;
+      for (let p: i32 = 0; p < numPlayers; p++) {
+        const sc: i32 = evalPlayerBest(p, fullBoard);
+        unchecked(scores[p] = sc);
+        if (sc > maxScore) maxScore = sc;
+      }
+      let winCount: i32 = 0;
+      for (let p: i32 = 0; p < numPlayers; p++) {
+        if (unchecked(scores[p]) === maxScore) winCount++;
+      }
+      for (let p: i32 = 0; p < numPlayers; p++) {
+        if (unchecked(scores[p]) === maxScore) {
+          if (winCount === 1) unchecked(wins[p] = wins[p] + 1);
+          else unchecked(ties[p] = ties[p] + 1);
+        }
+      }
+    }
+  } else if (cardsNeeded === 2) {
+    for (let c0: i32 = 0; c0 < deckLen - 1; c0++) {
+      unchecked(fullBoard[boardLen] = deck[c0]);
+      for (let c1: i32 = c0 + 1; c1 < deckLen; c1++) {
+        unchecked(fullBoard[boardLen + 1] = deck[c1]);
+        totalRunouts++;
+        let maxScore: i32 = 0;
+        for (let p: i32 = 0; p < numPlayers; p++) {
+          const sc: i32 = evalPlayerBest(p, fullBoard);
+          unchecked(scores[p] = sc);
+          if (sc > maxScore) maxScore = sc;
+        }
+        let winCount: i32 = 0;
+        for (let p: i32 = 0; p < numPlayers; p++) {
+          if (unchecked(scores[p]) === maxScore) winCount++;
+        }
+        for (let p: i32 = 0; p < numPlayers; p++) {
+          if (unchecked(scores[p]) === maxScore) {
+            if (winCount === 1) unchecked(wins[p] = wins[p] + 1);
+            else unchecked(ties[p] = ties[p] + 1);
+          }
+        }
+      }
+    }
+  } else {
+    totalRunouts = -1;
+  }
+  
+  return totalRunouts;
+}
+
+// Get deck length for calculating combinations
+export function getDeckLen(): i32 {
+  return deckLen;
+}
+
 // Get results
 export function getWins(playerIdx: i32): i32 {
   return unchecked(wins[playerIdx]);
