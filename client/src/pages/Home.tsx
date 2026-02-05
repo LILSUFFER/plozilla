@@ -1,59 +1,11 @@
-import { useState } from 'react';
-import { type Card, evaluateHand, generateRandomHand, parseHand, handToString } from '@/lib/poker-evaluator';
-import { HandDisplay } from '@/components/HandDisplay';
-import { HandComparison } from '@/components/HandComparison';
-import { InlineCardPicker } from '@/components/CardPicker';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { PlayingCard } from '@/components/PlayingCard';
 import { EquityCalculator } from '@/components/EquityCalculator';
 import { Card as UICard, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { Shuffle, X, Calculator, Swords, BookOpen, Spade, TrendingUp } from 'lucide-react';
+import { BookOpen, Spade, TrendingUp } from 'lucide-react';
 
 export default function Home() {
-  const [selectedCards, setSelectedCards] = useState<Card[]>([]);
-  const [textInput, setTextInput] = useState('');
-  const [inputMode, setInputMode] = useState<'picker' | 'text'>('picker');
-  
-  const result = selectedCards.length === 5 ? evaluateHand(selectedCards) : null;
-  
-  const handleAddCard = (card: Card) => {
-    if (selectedCards.length < 5) {
-      const newCards = [...selectedCards, card];
-      setSelectedCards(newCards);
-      setTextInput(handToString(newCards));
-    }
-  };
-  
-  const handleRemoveCard = (index: number) => {
-    const newCards = selectedCards.filter((_, i) => i !== index);
-    setSelectedCards(newCards);
-    setTextInput(handToString(newCards));
-  };
-  
-  const handleTextChange = (value: string) => {
-    setTextInput(value);
-    const parsed = parseHand(value);
-    if (parsed) {
-      setSelectedCards(parsed);
-    }
-  };
-  
-  const handleRandomHand = () => {
-    const hand = generateRandomHand();
-    setSelectedCards(hand);
-    setTextInput(handToString(hand));
-  };
-  
-  const handleClear = () => {
-    setSelectedCards([]);
-    setTextInput('');
-  };
-  
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b bg-card sticky top-0 z-50">
@@ -73,18 +25,10 @@ export default function Home() {
       
       <main className="container mx-auto px-4 py-6 space-y-6">
         <Tabs defaultValue="equity" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4 max-w-lg mx-auto">
+          <TabsList className="grid w-full grid-cols-2 max-w-xs mx-auto">
             <TabsTrigger value="equity" className="flex items-center gap-2" data-testid="tab-equity">
               <TrendingUp className="w-4 h-4" />
               <span className="hidden sm:inline">Equity</span>
-            </TabsTrigger>
-            <TabsTrigger value="evaluate" className="flex items-center gap-2" data-testid="tab-evaluate">
-              <Calculator className="w-4 h-4" />
-              <span className="hidden sm:inline">Evaluate</span>
-            </TabsTrigger>
-            <TabsTrigger value="compare" className="flex items-center gap-2" data-testid="tab-compare">
-              <Swords className="w-4 h-4" />
-              <span className="hidden sm:inline">Compare</span>
             </TabsTrigger>
             <TabsTrigger value="learn" className="flex items-center gap-2" data-testid="tab-learn">
               <BookOpen className="w-4 h-4" />
@@ -94,143 +38,6 @@ export default function Home() {
           
           <TabsContent value="equity" className="space-y-6">
             <EquityCalculator />
-          </TabsContent>
-          
-          <TabsContent value="evaluate" className="space-y-6">
-            <div className="grid lg:grid-cols-2 gap-6">
-              <UICard>
-                <CardHeader>
-                  <CardTitle>Select Your Hand</CardTitle>
-                  <CardDescription>
-                    Pick 5 cards to evaluate your poker hand
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <Tabs value={inputMode} onValueChange={(v) => setInputMode(v as 'picker' | 'text')}>
-                    <TabsList className="grid w-full grid-cols-2">
-                      <TabsTrigger value="picker">Card Picker</TabsTrigger>
-                      <TabsTrigger value="text">Text Input</TabsTrigger>
-                    </TabsList>
-                    
-                    <TabsContent value="picker" className="mt-4 space-y-4">
-                      <div className="flex gap-2 flex-wrap">
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          onClick={handleRandomHand}
-                          data-testid="button-random"
-                        >
-                          <Shuffle className="w-4 h-4 mr-2" />
-                          Random Hand
-                        </Button>
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          onClick={handleClear}
-                          disabled={selectedCards.length === 0}
-                          data-testid="button-clear"
-                        >
-                          <X className="w-4 h-4 mr-2" />
-                          Clear
-                        </Button>
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <Label className="text-sm text-muted-foreground">
-                          Selected: {selectedCards.length}/5
-                        </Label>
-                        <div className="flex gap-1 min-h-[60px] p-2 rounded-md border bg-muted/30 flex-wrap items-center">
-                          {selectedCards.length === 0 ? (
-                            <span className="text-sm text-muted-foreground mx-auto">
-                              Click cards below to select
-                            </span>
-                          ) : (
-                            selectedCards.map((card, i) => (
-                              <div key={i} className="relative group">
-                                <PlayingCard 
-                                  card={card} 
-                                  size="sm" 
-                                  onClick={() => handleRemoveCard(i)} 
-                                />
-                                <button
-                                  className="absolute -top-1 -right-1 w-4 h-4 bg-destructive text-destructive-foreground rounded-full text-xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
-                                  onClick={() => handleRemoveCard(i)}
-                                  data-testid={`button-remove-card-${i}`}
-                                >
-                                  x
-                                </button>
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      </div>
-                      
-                      <InlineCardPicker
-                        selectedCards={selectedCards}
-                        onSelectCard={handleAddCard}
-                        onRemoveCard={handleRemoveCard}
-                        maxCards={5}
-                      />
-                    </TabsContent>
-                    
-                    <TabsContent value="text" className="mt-4 space-y-4">
-                      <div className="space-y-2">
-                        <Label>Enter hand notation</Label>
-                        <div className="flex gap-2">
-                          <Input
-                            value={textInput}
-                            onChange={(e) => handleTextChange(e.target.value)}
-                            placeholder="Ah Ks Qd Jc Tc"
-                            className="font-mono"
-                            data-testid="input-hand-text"
-                          />
-                          <Button 
-                            variant="outline" 
-                            size="icon"
-                            onClick={handleRandomHand}
-                            data-testid="button-random-text"
-                          >
-                            <Shuffle className="w-4 h-4" />
-                          </Button>
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          Format: Rank (2-9, T, J, Q, K, A) + Suit (c, d, h, s)
-                        </p>
-                      </div>
-                      
-                      <div className="grid grid-cols-2 gap-2 text-sm">
-                        <div className="p-2 rounded bg-muted/50">
-                          <p className="font-mono">Ah</p>
-                          <p className="text-xs text-muted-foreground">Ace of Hearts</p>
-                        </div>
-                        <div className="p-2 rounded bg-muted/50">
-                          <p className="font-mono">Tc</p>
-                          <p className="text-xs text-muted-foreground">Ten of Clubs</p>
-                        </div>
-                        <div className="p-2 rounded bg-muted/50">
-                          <p className="font-mono">Ks</p>
-                          <p className="text-xs text-muted-foreground">King of Spades</p>
-                        </div>
-                        <div className="p-2 rounded bg-muted/50">
-                          <p className="font-mono">2d</p>
-                          <p className="text-xs text-muted-foreground">Two of Diamonds</p>
-                        </div>
-                      </div>
-                    </TabsContent>
-                  </Tabs>
-                </CardContent>
-              </UICard>
-              
-              <HandDisplay
-                cards={selectedCards}
-                result={result}
-                onCardClick={handleRemoveCard}
-              />
-            </div>
-          </TabsContent>
-          
-          <TabsContent value="compare">
-            <HandComparison />
           </TabsContent>
           
           <TabsContent value="learn" className="space-y-6">
