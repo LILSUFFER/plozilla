@@ -517,6 +517,96 @@ export function calculateExhaustive(): i32 {
         }
       }
     }
+  } else if (cardsNeeded === 3) {
+    for (let c0: i32 = 0; c0 < deckLen - 2; c0++) {
+      unchecked(fullBoard[boardLen] = deck[c0]);
+      for (let c1: i32 = c0 + 1; c1 < deckLen - 1; c1++) {
+        unchecked(fullBoard[boardLen + 1] = deck[c1]);
+        for (let c2: i32 = c1 + 1; c2 < deckLen; c2++) {
+          unchecked(fullBoard[boardLen + 2] = deck[c2]);
+          totalRunouts++;
+          let maxScore: i32 = 0;
+          for (let p: i32 = 0; p < numPlayers; p++) {
+            const sc: i32 = evalPlayerBest(p, fullBoard);
+            unchecked(scores[p] = sc);
+            if (sc > maxScore) maxScore = sc;
+          }
+          let winCount: i32 = 0;
+          for (let p: i32 = 0; p < numPlayers; p++) {
+            if (unchecked(scores[p]) === maxScore) winCount++;
+          }
+          for (let p: i32 = 0; p < numPlayers; p++) {
+            if (unchecked(scores[p]) === maxScore) {
+              if (winCount === 1) unchecked(wins[p] = wins[p] + 1);
+              else unchecked(ties[p] = ties[p] + 1);
+            }
+          }
+        }
+      }
+    }
+  } else if (cardsNeeded === 4) {
+    for (let c0: i32 = 0; c0 < deckLen - 3; c0++) {
+      unchecked(fullBoard[boardLen] = deck[c0]);
+      for (let c1: i32 = c0 + 1; c1 < deckLen - 2; c1++) {
+        unchecked(fullBoard[boardLen + 1] = deck[c1]);
+        for (let c2: i32 = c1 + 1; c2 < deckLen - 1; c2++) {
+          unchecked(fullBoard[boardLen + 2] = deck[c2]);
+          for (let c3: i32 = c2 + 1; c3 < deckLen; c3++) {
+            unchecked(fullBoard[boardLen + 3] = deck[c3]);
+            totalRunouts++;
+            let maxScore: i32 = 0;
+            for (let p: i32 = 0; p < numPlayers; p++) {
+              const sc: i32 = evalPlayerBest(p, fullBoard);
+              unchecked(scores[p] = sc);
+              if (sc > maxScore) maxScore = sc;
+            }
+            let winCount: i32 = 0;
+            for (let p: i32 = 0; p < numPlayers; p++) {
+              if (unchecked(scores[p]) === maxScore) winCount++;
+            }
+            for (let p: i32 = 0; p < numPlayers; p++) {
+              if (unchecked(scores[p]) === maxScore) {
+                if (winCount === 1) unchecked(wins[p] = wins[p] + 1);
+                else unchecked(ties[p] = ties[p] + 1);
+              }
+            }
+          }
+        }
+      }
+    }
+  } else if (cardsNeeded === 5) {
+    for (let c0: i32 = 0; c0 < deckLen - 4; c0++) {
+      unchecked(fullBoard[boardLen] = deck[c0]);
+      for (let c1: i32 = c0 + 1; c1 < deckLen - 3; c1++) {
+        unchecked(fullBoard[boardLen + 1] = deck[c1]);
+        for (let c2: i32 = c1 + 1; c2 < deckLen - 2; c2++) {
+          unchecked(fullBoard[boardLen + 2] = deck[c2]);
+          for (let c3: i32 = c2 + 1; c3 < deckLen - 1; c3++) {
+            unchecked(fullBoard[boardLen + 3] = deck[c3]);
+            for (let c4: i32 = c3 + 1; c4 < deckLen; c4++) {
+              unchecked(fullBoard[boardLen + 4] = deck[c4]);
+              totalRunouts++;
+              let maxScore: i32 = 0;
+              for (let p: i32 = 0; p < numPlayers; p++) {
+                const sc: i32 = evalPlayerBest(p, fullBoard);
+                unchecked(scores[p] = sc);
+                if (sc > maxScore) maxScore = sc;
+              }
+              let winCount: i32 = 0;
+              for (let p: i32 = 0; p < numPlayers; p++) {
+                if (unchecked(scores[p]) === maxScore) winCount++;
+              }
+              for (let p: i32 = 0; p < numPlayers; p++) {
+                if (unchecked(scores[p]) === maxScore) {
+                  if (winCount === 1) unchecked(wins[p] = wins[p] + 1);
+                  else unchecked(ties[p] = ties[p] + 1);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
   } else {
     totalRunouts = -1;
   }

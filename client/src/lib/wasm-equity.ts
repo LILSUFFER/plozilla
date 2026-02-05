@@ -37,9 +37,7 @@ function combinations(n: number, k: number): number {
   return Math.round(result);
 }
 
-// Threshold for exhaustive vs Monte Carlo (like ProPokerTools)
-const EXHAUSTIVE_THRESHOLD = 50000;
-const DEFAULT_MONTE_CARLO_TRIALS = 100000;
+// Always use exhaustive like ProPokerTools (no Monte Carlo limits)
 
 function encodeCard(card: Card): number {
   return RC[card.rank] * 4 + SC[card.suit];
@@ -118,27 +116,10 @@ function calculateWithWasm(
   // Build deck
   wasm.buildDeck(usedLow, usedHigh);
   
-  // Calculate number of runouts to decide exhaustive vs Monte Carlo
-  const cardsNeeded = 5 - board.length;
-  const deckSize = 52 - usedCount;
-  const totalRunouts = combinations(deckSize, cardsNeeded);
-  
-  let actualTrials: number;
-  let isExhaustive: boolean;
-  
-  if (cardsNeeded <= 2 && totalRunouts <= EXHAUSTIVE_THRESHOLD) {
-    // Use exhaustive enumeration for turn/river
-    actualTrials = wasm.calculateExhaustive();
-    isExhaustive = true;
-    console.log(`Exhaustive: ${actualTrials} runouts`);
-  } else {
-    // Use Monte Carlo for flop/preflop
-    wasm.setSeed(Date.now() | 0);
-    actualTrials = Math.min(totalRunouts, DEFAULT_MONTE_CARLO_TRIALS);
-    wasm.calculate(actualTrials);
-    isExhaustive = false;
-    console.log(`Monte Carlo: ${actualTrials} trials (${totalRunouts} possible)`);
-  }
+  // Always use exhaustive enumeration like ProPokerTools
+  const actualTrials = wasm.calculateExhaustive();
+  const isExhaustive = true;
+  console.log(`Exhaustive: ${actualTrials} runouts`);
   
   // Get results
   const results: EquityResult[] = vp.map((p, i) => {
@@ -248,12 +229,9 @@ function calculateEquityJS(players: PlayerInput[], board: Card[]): CalculationRe
   const fb = new Uint8Array(5);
   for (let i = 0; i < board.length; i++) fb[i] = bc[i];
   
-  // Calculate number of runouts
-  const totalRunouts = combinations(dl, cn);
-  const numTrials = cn <= 2 && totalRunouts <= EXHAUSTIVE_THRESHOLD 
-    ? totalRunouts 
-    : Math.min(totalRunouts, DEFAULT_MONTE_CARLO_TRIALS);
-  const isExhaustive = cn <= 2 && totalRunouts <= EXHAUSTIVE_THRESHOLD;
+  // Always use exhaustive enumeration like ProPokerTools
+  const numTrials = combinations(dl, cn);
+  const isExhaustive = true;
   
   for (let trial = 0; trial < numTrials; trial++) {
     for (let i = 0; i < cn; i++) {
