@@ -640,7 +640,8 @@ function parseRangeToken(token: string): { hands: Card[][], count: number, patte
       totalCount += count;
       
       const constraint = parsePatternToConstraint(expandMacros(finalPattern));
-      for (let i = 0; i < Math.min(5, count); i++) {
+      const numSamples = Math.min(2000, count);
+      for (let i = 0; i < numSamples; i++) {
         const sample = generateSampleFromConstraint(constraint, new Set());
         if (sample) allHands.push(sample);
       }

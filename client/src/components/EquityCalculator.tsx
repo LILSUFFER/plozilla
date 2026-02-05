@@ -224,8 +224,9 @@ export function EquityCalculator() {
     const hasRanges = validPlayers.some(p => p.isRange);
     
     if (hasRanges) {
-      setTimeout(async () => {
-        const NUM_SAMPLES = 200;
+      const runRangeCalculation = async () => {
+        const NUM_SAMPLES = 100000;
+        const BATCH_SIZE = 1000;
         const equityTotals: Record<number, number> = {};
         let totalSamples = 0;
         
@@ -255,64 +256,86 @@ export function EquityCalculator() {
           return boardCards;
         };
         
-        for (let sample = 0; sample < NUM_SAMPLES; sample++) {
-          const usedCards = new Set(usedByBoard);
-          let validSample = true;
-          const sampledHands: Card[][] = [];
+        for (let batchStart = 0; batchStart < NUM_SAMPLES; batchStart += BATCH_SIZE) {
+          const batchEnd = Math.min(batchStart + BATCH_SIZE, NUM_SAMPLES);
           
-          for (const p of validPlayers) {
-            let baseHand: Card[];
+          for (let sample = batchStart; sample < batchEnd; sample++) {
+            const usedCards = new Set(usedByBoard);
+            let validSample = true;
+            const sampledHands: Card[][] = [];
             
-            if (p.isRange && p.rangeHands) {
-              const hand = getRandomHandFromRange(p.rangeHands, usedCards);
-              if (!hand) {
-                validSample = false;
-                break;
+            for (const p of validPlayers) {
+              let baseHand: Card[];
+              
+              if (p.isRange && p.rangeHands) {
+                const hand = getRandomHandFromRange(p.rangeHands, usedCards);
+                if (!hand) {
+                  validSample = false;
+                  break;
+                }
+                baseHand = [...hand];
+              } else {
+                if (p.cards.some(c => usedCards.has(`${c.rank}${c.suit}`))) {
+                  validSample = false;
+                  break;
+                }
+                baseHand = [...p.cards];
               }
-              baseHand = [...hand];
-            } else {
-              if (p.cards.some(c => usedCards.has(`${c.rank}${c.suit}`))) {
-                validSample = false;
-                break;
+              
+              for (const c of baseHand) usedCards.add(`${c.rank}${c.suit}`);
+              
+              while (baseHand.length < 5) {
+                const available = fullDeck.filter(c => !usedCards.has(`${c.rank}${c.suit}`));
+                if (available.length === 0) {
+                  validSample = false;
+                  break;
+                }
+                const randomCard = available[Math.floor(Math.random() * available.length)];
+                baseHand.push(randomCard);
+                usedCards.add(`${randomCard.rank}${randomCard.suit}`);
               }
-              baseHand = [...p.cards];
+              
+              if (!validSample) break;
+              sampledHands.push(baseHand);
             }
             
-            for (const c of baseHand) usedCards.add(`${c.rank}${c.suit}`);
+            if (!validSample || sampledHands.length !== validPlayers.length) continue;
             
-            while (baseHand.length < 5) {
-              const available = fullDeck.filter(c => !usedCards.has(`${c.rank}${c.suit}`));
-              if (available.length === 0) {
-                validSample = false;
-                break;
-              }
-              const randomCard = available[Math.floor(Math.random() * available.length)];
-              baseHand.push(randomCard);
-              usedCards.add(`${randomCard.rank}${randomCard.suit}`);
+            const randomBoard = board.length === 5 ? board : generateRandomBoard(usedCards);
+            if (randomBoard.length < 5) continue;
+            
+            const sampledPlayers: PlayerInput[] = validPlayers.map((p, i) => ({
+              ...p, cards: sampledHands[i], isRange: false
+            }));
+            
+            const sampleResult = calculateEquityFast(sampledPlayers, randomBoard);
+            for (const r of sampleResult.results) {
+              equityTotals[r.playerId] += r.equity;
             }
-            
-            if (!validSample) break;
-            sampledHands.push(baseHand);
+            totalSamples++;
           }
           
-          if (!validSample || sampledHands.length !== validPlayers.length) continue;
-          
-          const randomBoard = board.length === 5 ? board : generateRandomBoard(usedCards);
-          if (randomBoard.length < 5) continue;
-          
-          const sampledPlayers: PlayerInput[] = validPlayers.map((p, i) => ({
-            ...p, cards: sampledHands[i], isRange: false
-          }));
-          
-          const sampleResult = calculateEquityFast(sampledPlayers, randomBoard);
-          for (const r of sampleResult.results) {
-            equityTotals[r.playerId] += r.equity;
+          // Update progress after each batch
+          if (totalSamples > 0) {
+            setResult({
+              results: validPlayers.map(p => ({
+                playerId: p.id,
+                wins: 0,
+                ties: 0,
+                total: totalSamples,
+                equity: equityTotals[p.id] / totalSamples
+              })),
+              totalTrials: totalSamples,
+              isExhaustive: false
+            });
           }
-          totalSamples++;
+          
+          // Yield to UI
+          await new Promise(resolve => setTimeout(resolve, 0));
         }
         
         const elapsed = performance.now() - start;
-        console.log(`Range calc: ${elapsed.toFixed(0)}ms for ${totalSamples} samples`);
+        console.log(`Range calc: ${elapsed.toFixed(0)}ms for ${totalSamples} trials`);
         setCalcTime(elapsed);
         setIsCached(false);
         
@@ -330,7 +353,9 @@ export function EquityCalculator() {
           });
         }
         setIsCalculating(false);
-      }, 10);
+      };
+      
+      setTimeout(runRangeCalculation, 10);
       return;
     }
     
