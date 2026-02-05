@@ -10,9 +10,9 @@ interface CardChipProps {
 function getSuitBgColor(suit: string): string {
   switch (suit) {
     case 'h': return 'bg-red-600';
-    case 'd': return 'bg-red-700';
-    case 's': return 'bg-blue-600';
-    case 'c': return 'bg-gray-600';
+    case 'd': return 'bg-blue-600';
+    case 'c': return 'bg-green-600';
+    case 's': return 'bg-gray-600';
     default: return 'bg-gray-500';
   }
 }
