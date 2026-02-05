@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Calculator, Zap, Target, TrendingUp, ChevronRight } from "lucide-react";
+import { SiGoogle} from "react-icons/si";
 
 export default function Landing() {
   return (
@@ -46,9 +47,15 @@ export default function Landing() {
                   ProPokerTools Oracle.
                 </p>
                 <div className="flex flex-wrap gap-4">
-                  <Button size="lg" asChild data-testid="button-get-started">
+                  <Button size="lg" asChild data-testid="button-google-signin">
                     <a href="/api/auth/google">
+                      <SiGoogle className="w-4 h-4 mr-2" />
                       Sign in with Google
+                    </a>
+                  </Button>
+                  <Button size="lg" variant="outline" asChild data-testid="button-replit-signin">
+                    <a href="/api/login">
+                      Sign in with Replit
                       <ChevronRight className="w-5 h-5 ml-1" />
                     </a>
                   </Button>

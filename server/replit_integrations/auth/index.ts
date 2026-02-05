@@ -1,2 +1,2 @@
-export { setupGoogleAuth, isAuthenticated, getSession } from "./googleAuth";
+export { setupCombinedAuth, isAuthenticated, getSession } from "./combinedAuth";
 export { authStorage, type IAuthStorage } from "./storage";
