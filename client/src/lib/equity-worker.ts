@@ -1,4 +1,4 @@
-// Optimized equity calculator - correct and reasonably fast
+// Equity calculator with Monte Carlo for large calculations
 
 interface Card { rank: string; suit: string; }
 interface PlayerInput { id: number; cards: Card[]; input: string; }
@@ -13,6 +13,9 @@ const SUIT_MAP: Record<string, number> = { 'c': 0, 'd': 1, 'h': 2, 's': 3 };
 
 const H2 = [[0,1],[0,2],[0,3],[0,4],[1,2],[1,3],[1,4],[2,3],[2,4],[3,4]];
 const B3 = [[0,1,2],[0,1,3],[0,1,4],[0,2,3],[0,2,4],[0,3,4],[1,2,3],[1,2,4],[1,3,4],[2,3,4]];
+
+const MONTE_CARLO_THRESHOLD = 50000;
+const MONTE_CARLO_SAMPLES = 100000;
 
 function eval5(r0: number, r1: number, r2: number, r3: number, r4: number,
                s0: number, s1: number, s2: number, s3: number, s4: number): number {
@@ -74,6 +77,13 @@ function eval5(r0: number, r1: number, r2: number, r3: number, r4: number,
   return sorted[0] * 50625 + sorted[1] * 3375 + sorted[2] * 225 + sorted[3] * 15 + sorted[4];
 }
 
+function shuffle(arr: number[], n: number): void {
+  for (let i = n - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+  }
+}
+
 function calculateEquity(players: PlayerInput[], board: Card[]): CalculationResult {
   const validPlayers = players.filter(p => p.cards.length >= 2 && p.cards.length <= 5);
   if (validPlayers.length < 2) return { results: [], totalTrials: 0, isExhaustive: true };
@@ -118,10 +128,13 @@ function calculateEquity(players: PlayerInput[], board: Card[]): CalculationResu
     totalTrials = Math.round(num);
   }
   
+  const useMonteCarlo = totalTrials > MONTE_CARLO_THRESHOLD;
+  const actualTrials = useMonteCarlo ? MONTE_CARLO_SAMPLES : totalTrials;
+  
   const wins = new Array(numPlayers).fill(0);
   const ties = new Array(numPlayers).fill(0);
   let processed = 0;
-  const progressInterval = Math.max(1, Math.floor(totalTrials / 20));
+  const progressInterval = Math.max(1, Math.floor(actualTrials / 20));
   
   const evalOmaha = (pIdx: number, br: number[], bs: number[]): number => {
     const hr = playerRanks[pIdx], hs = playerSuits[pIdx], hLen = hr.length;
@@ -150,7 +163,23 @@ function calculateEquity(players: PlayerInput[], board: Card[]): CalculationResu
       if (scores[p] === mx) { if (wc === 1) wins[p]++; else ties[p]++; }
   };
   
-  if (cardsNeeded === 0) {
+  if (useMonteCarlo) {
+    const indices = Array.from({ length: deckLen }, (_, i) => i);
+    const fR = [...boardR], fS = [...boardS];
+    for (let i = 0; i < cardsNeeded; i++) { fR.push(0); fS.push(0); }
+    
+    for (let trial = 0; trial < MONTE_CARLO_SAMPLES; trial++) {
+      shuffle(indices, deckLen);
+      for (let i = 0; i < cardsNeeded; i++) {
+        fR[board.length + i] = deckR[indices[i]];
+        fS[board.length + i] = deckS[indices[i]];
+      }
+      for (let p = 0; p < numPlayers; p++) scores[p] = evalOmaha(p, fR, fS);
+      updateWinners();
+      if (++processed % progressInterval === 0) 
+        self.postMessage({ type: 'progress', progress: processed / actualTrials });
+    }
+  } else if (cardsNeeded === 0) {
     for (let p = 0; p < numPlayers; p++) scores[p] = evalOmaha(p, boardR, boardS);
     updateWinners();
     processed = 1;
@@ -163,7 +192,7 @@ function calculateEquity(players: PlayerInput[], board: Card[]): CalculationResu
         for (let p = 0; p < numPlayers; p++) scores[p] = evalOmaha(p, fR, fS);
         updateWinners();
         if (++processed % progressInterval === 0) 
-          self.postMessage({ type: 'progress', progress: processed / totalTrials });
+          self.postMessage({ type: 'progress', progress: processed / actualTrials });
       }
     }
   } else if (cardsNeeded === 5) {
@@ -181,7 +210,7 @@ function calculateEquity(players: PlayerInput[], board: Card[]): CalculationResu
               for (let p = 0; p < numPlayers; p++) scores[p] = evalOmaha(p, fR, fS);
               updateWinners();
               if (++processed % progressInterval === 0) 
-                self.postMessage({ type: 'progress', progress: processed / totalTrials });
+                self.postMessage({ type: 'progress', progress: processed / actualTrials });
             }
           }
         }
@@ -199,7 +228,7 @@ function calculateEquity(players: PlayerInput[], board: Card[]): CalculationResu
       for (let p = 0; p < numPlayers; p++) scores[p] = evalOmaha(p, fR, fS);
       updateWinners();
       if (++processed % progressInterval === 0) 
-        self.postMessage({ type: 'progress', progress: processed / totalTrials });
+        self.postMessage({ type: 'progress', progress: processed / actualTrials });
       let i = cardsNeeded - 1;
       while (i >= 0 && idx[i] === deckLen - cardsNeeded + i) i--;
       if (i < 0) break;
@@ -216,8 +245,8 @@ function calculateEquity(players: PlayerInput[], board: Card[]): CalculationResu
       total: processed,
       equity: processed > 0 ? ((wins[i] + ties[i] / 2) / processed) * 100 : 0
     })),
-    totalTrials,
-    isExhaustive: true
+    totalTrials: useMonteCarlo ? MONTE_CARLO_SAMPLES : totalTrials,
+    isExhaustive: !useMonteCarlo
   };
 }
 
