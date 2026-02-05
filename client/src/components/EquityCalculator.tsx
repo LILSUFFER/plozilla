@@ -504,7 +504,9 @@ export function EquityCalculator() {
   const validPlayerCount = players.filter(p => 
     (p.cards.length >= 2) || (p.isRange && (p.comboCount || 0) > 0)
   ).length;
-  const canCalculate = validPlayerCount >= 2 && !isCalculating && board.length <= 5;
+  // Board must be 0 (preflop), 3 (flop), 4 (turn), or 5 (river) cards
+  const isValidBoardSize = board.length === 0 || board.length === 3 || board.length === 4 || board.length === 5;
+  const canCalculate = validPlayerCount >= 2 && !isCalculating && isValidBoardSize;
   
   const maxEquity = result ? Math.max(...result.results.map(r => r.equity)) : 0;
   
@@ -521,14 +523,19 @@ export function EquityCalculator() {
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="space-y-2">
-          <Label>Board (0-5 cards)</Label>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
+            <Label>Board</Label>
+            <span className="text-xs text-muted-foreground">
+              (Preflop: 0 | Flop: 3 | Turn: 4 | River: 5)
+            </span>
+          </div>
+          <div className="flex gap-2 items-center">
             <Input
               key={`board-${resetKey}`}
               value={boardInput}
               onChange={(e) => handleBoardChange(e.target.value)}
               placeholder="e.g. AsKd5c"
-              className="font-mono max-w-xs"
+              className={`font-mono max-w-xs ${!isValidBoardSize && board.length > 0 ? 'border-destructive' : ''}`}
               disabled={isCalculating}
               data-testid="input-board"
             />
@@ -541,6 +548,11 @@ export function EquityCalculator() {
                 />
               ))}
             </div>
+            {!isValidBoardSize && board.length > 0 && (
+              <span className="text-xs text-destructive">
+                Invalid: need {board.length === 1 ? '2 more' : '1 more'} card{board.length === 1 ? 's' : ''}
+              </span>
+            )}
           </div>
         </div>
         
