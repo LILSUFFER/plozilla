@@ -8,10 +8,17 @@ A browser-based 5-Card Omaha equity calculator similar to ProPokerTools Oracle. 
 - **SaaS Architecture**: Restructured as authenticated web application
   - Landing page at / (public) with GTOWizard-style design
   - Equity calculator at /app (requires authentication)
+  - Table EV Analyzer at /app (Table EV tab) - calculates expected value based on table composition
   - Google OAuth integration (passport-google-oauth20)
   - PostgreSQL session storage with user profiles
   - User avatar and logout functionality in app header
   - Configured for plozilla.com domain
+- **Table EV Analyzer**: Calculate EV based on fish at table
+  - 6-max table visualization with clickable seats
+  - Player types: Hero, Reg, Fish, Empty
+  - Position coefficients (BTN 1.5x, CO 1.1x, etc.)
+  - VPIP sliders for fish players
+  - Formula: (fishLoss - tableRake) / N_regs * positionCoef - heroRake
 - **Board Validation**: Only valid poker states allowed (0, 3, 4, or 5 cards)
   - Preflop: 0 cards, Flop: 3 cards, Turn: 4 cards, River: 5 cards
   - Invalid states (1-2 cards) show error message and disable calculation
