@@ -92,129 +92,26 @@ const bCards = new StaticArray<i32>(5);
 
 @inline function evalPlayer(pIdx: i32, b0: i32, b1: i32, b2: i32, b3: i32, b4: i32): i32 {
   const base: i32 = pIdx * 5;
-  const h0: i32 = unchecked(playerHands[base]);
-  const h1: i32 = unchecked(playerHands[base+1]);
-  const h2: i32 = unchecked(playerHands[base+2]);
-  const h3: i32 = unchecked(playerHands[base+3]);
-  const h4: i32 = unchecked(playerHands[base+4]);
+  unchecked(hCards[0] = playerHands[base]);
+  unchecked(hCards[1] = playerHands[base+1]);
+  unchecked(hCards[2] = playerHands[base+2]);
+  unchecked(hCards[3] = playerHands[base+3]);
+  unchecked(hCards[4] = playerHands[base+4]);
+  unchecked(bCards[0] = b0);
+  unchecked(bCards[1] = b1);
+  unchecked(bCards[2] = b2);
+  unchecked(bCards[3] = b3);
+  unchecked(bCards[4] = b4);
   
-  // Unrolled: all 10 hole card pairs x 10 board triplets = 100 combos
-  // Hole pairs: (0,1),(0,2),(0,3),(0,4),(1,2),(1,3),(1,4),(2,3),(2,4),(3,4)
-  // Board trips: (0,1,2),(0,1,3),(0,1,4),(0,2,3),(0,2,4),(0,3,4),(1,2,3),(1,2,4),(1,3,4),(2,3,4)
   let best: i32 = 0;
-  let sc: i32;
-  
-  // h0,h1 x 10 boards
-  sc = lookup(h0, h1, b0, b1, b2); if (sc > best) best = sc;
-  sc = lookup(h0, h1, b0, b1, b3); if (sc > best) best = sc;
-  sc = lookup(h0, h1, b0, b1, b4); if (sc > best) best = sc;
-  sc = lookup(h0, h1, b0, b2, b3); if (sc > best) best = sc;
-  sc = lookup(h0, h1, b0, b2, b4); if (sc > best) best = sc;
-  sc = lookup(h0, h1, b0, b3, b4); if (sc > best) best = sc;
-  sc = lookup(h0, h1, b1, b2, b3); if (sc > best) best = sc;
-  sc = lookup(h0, h1, b1, b2, b4); if (sc > best) best = sc;
-  sc = lookup(h0, h1, b1, b3, b4); if (sc > best) best = sc;
-  sc = lookup(h0, h1, b2, b3, b4); if (sc > best) best = sc;
-  // h0,h2 x 10 boards
-  sc = lookup(h0, h2, b0, b1, b2); if (sc > best) best = sc;
-  sc = lookup(h0, h2, b0, b1, b3); if (sc > best) best = sc;
-  sc = lookup(h0, h2, b0, b1, b4); if (sc > best) best = sc;
-  sc = lookup(h0, h2, b0, b2, b3); if (sc > best) best = sc;
-  sc = lookup(h0, h2, b0, b2, b4); if (sc > best) best = sc;
-  sc = lookup(h0, h2, b0, b3, b4); if (sc > best) best = sc;
-  sc = lookup(h0, h2, b1, b2, b3); if (sc > best) best = sc;
-  sc = lookup(h0, h2, b1, b2, b4); if (sc > best) best = sc;
-  sc = lookup(h0, h2, b1, b3, b4); if (sc > best) best = sc;
-  sc = lookup(h0, h2, b2, b3, b4); if (sc > best) best = sc;
-  // h0,h3 x 10 boards
-  sc = lookup(h0, h3, b0, b1, b2); if (sc > best) best = sc;
-  sc = lookup(h0, h3, b0, b1, b3); if (sc > best) best = sc;
-  sc = lookup(h0, h3, b0, b1, b4); if (sc > best) best = sc;
-  sc = lookup(h0, h3, b0, b2, b3); if (sc > best) best = sc;
-  sc = lookup(h0, h3, b0, b2, b4); if (sc > best) best = sc;
-  sc = lookup(h0, h3, b0, b3, b4); if (sc > best) best = sc;
-  sc = lookup(h0, h3, b1, b2, b3); if (sc > best) best = sc;
-  sc = lookup(h0, h3, b1, b2, b4); if (sc > best) best = sc;
-  sc = lookup(h0, h3, b1, b3, b4); if (sc > best) best = sc;
-  sc = lookup(h0, h3, b2, b3, b4); if (sc > best) best = sc;
-  // h0,h4 x 10 boards
-  sc = lookup(h0, h4, b0, b1, b2); if (sc > best) best = sc;
-  sc = lookup(h0, h4, b0, b1, b3); if (sc > best) best = sc;
-  sc = lookup(h0, h4, b0, b1, b4); if (sc > best) best = sc;
-  sc = lookup(h0, h4, b0, b2, b3); if (sc > best) best = sc;
-  sc = lookup(h0, h4, b0, b2, b4); if (sc > best) best = sc;
-  sc = lookup(h0, h4, b0, b3, b4); if (sc > best) best = sc;
-  sc = lookup(h0, h4, b1, b2, b3); if (sc > best) best = sc;
-  sc = lookup(h0, h4, b1, b2, b4); if (sc > best) best = sc;
-  sc = lookup(h0, h4, b1, b3, b4); if (sc > best) best = sc;
-  sc = lookup(h0, h4, b2, b3, b4); if (sc > best) best = sc;
-  // h1,h2 x 10 boards
-  sc = lookup(h1, h2, b0, b1, b2); if (sc > best) best = sc;
-  sc = lookup(h1, h2, b0, b1, b3); if (sc > best) best = sc;
-  sc = lookup(h1, h2, b0, b1, b4); if (sc > best) best = sc;
-  sc = lookup(h1, h2, b0, b2, b3); if (sc > best) best = sc;
-  sc = lookup(h1, h2, b0, b2, b4); if (sc > best) best = sc;
-  sc = lookup(h1, h2, b0, b3, b4); if (sc > best) best = sc;
-  sc = lookup(h1, h2, b1, b2, b3); if (sc > best) best = sc;
-  sc = lookup(h1, h2, b1, b2, b4); if (sc > best) best = sc;
-  sc = lookup(h1, h2, b1, b3, b4); if (sc > best) best = sc;
-  sc = lookup(h1, h2, b2, b3, b4); if (sc > best) best = sc;
-  // h1,h3 x 10 boards
-  sc = lookup(h1, h3, b0, b1, b2); if (sc > best) best = sc;
-  sc = lookup(h1, h3, b0, b1, b3); if (sc > best) best = sc;
-  sc = lookup(h1, h3, b0, b1, b4); if (sc > best) best = sc;
-  sc = lookup(h1, h3, b0, b2, b3); if (sc > best) best = sc;
-  sc = lookup(h1, h3, b0, b2, b4); if (sc > best) best = sc;
-  sc = lookup(h1, h3, b0, b3, b4); if (sc > best) best = sc;
-  sc = lookup(h1, h3, b1, b2, b3); if (sc > best) best = sc;
-  sc = lookup(h1, h3, b1, b2, b4); if (sc > best) best = sc;
-  sc = lookup(h1, h3, b1, b3, b4); if (sc > best) best = sc;
-  sc = lookup(h1, h3, b2, b3, b4); if (sc > best) best = sc;
-  // h1,h4 x 10 boards
-  sc = lookup(h1, h4, b0, b1, b2); if (sc > best) best = sc;
-  sc = lookup(h1, h4, b0, b1, b3); if (sc > best) best = sc;
-  sc = lookup(h1, h4, b0, b1, b4); if (sc > best) best = sc;
-  sc = lookup(h1, h4, b0, b2, b3); if (sc > best) best = sc;
-  sc = lookup(h1, h4, b0, b2, b4); if (sc > best) best = sc;
-  sc = lookup(h1, h4, b0, b3, b4); if (sc > best) best = sc;
-  sc = lookup(h1, h4, b1, b2, b3); if (sc > best) best = sc;
-  sc = lookup(h1, h4, b1, b2, b4); if (sc > best) best = sc;
-  sc = lookup(h1, h4, b1, b3, b4); if (sc > best) best = sc;
-  sc = lookup(h1, h4, b2, b3, b4); if (sc > best) best = sc;
-  // h2,h3 x 10 boards
-  sc = lookup(h2, h3, b0, b1, b2); if (sc > best) best = sc;
-  sc = lookup(h2, h3, b0, b1, b3); if (sc > best) best = sc;
-  sc = lookup(h2, h3, b0, b1, b4); if (sc > best) best = sc;
-  sc = lookup(h2, h3, b0, b2, b3); if (sc > best) best = sc;
-  sc = lookup(h2, h3, b0, b2, b4); if (sc > best) best = sc;
-  sc = lookup(h2, h3, b0, b3, b4); if (sc > best) best = sc;
-  sc = lookup(h2, h3, b1, b2, b3); if (sc > best) best = sc;
-  sc = lookup(h2, h3, b1, b2, b4); if (sc > best) best = sc;
-  sc = lookup(h2, h3, b1, b3, b4); if (sc > best) best = sc;
-  sc = lookup(h2, h3, b2, b3, b4); if (sc > best) best = sc;
-  // h2,h4 x 10 boards
-  sc = lookup(h2, h4, b0, b1, b2); if (sc > best) best = sc;
-  sc = lookup(h2, h4, b0, b1, b3); if (sc > best) best = sc;
-  sc = lookup(h2, h4, b0, b1, b4); if (sc > best) best = sc;
-  sc = lookup(h2, h4, b0, b2, b3); if (sc > best) best = sc;
-  sc = lookup(h2, h4, b0, b2, b4); if (sc > best) best = sc;
-  sc = lookup(h2, h4, b0, b3, b4); if (sc > best) best = sc;
-  sc = lookup(h2, h4, b1, b2, b3); if (sc > best) best = sc;
-  sc = lookup(h2, h4, b1, b2, b4); if (sc > best) best = sc;
-  sc = lookup(h2, h4, b1, b3, b4); if (sc > best) best = sc;
-  sc = lookup(h2, h4, b2, b3, b4); if (sc > best) best = sc;
-  // h3,h4 x 10 boards
-  sc = lookup(h3, h4, b0, b1, b2); if (sc > best) best = sc;
-  sc = lookup(h3, h4, b0, b1, b3); if (sc > best) best = sc;
-  sc = lookup(h3, h4, b0, b1, b4); if (sc > best) best = sc;
-  sc = lookup(h3, h4, b0, b2, b3); if (sc > best) best = sc;
-  sc = lookup(h3, h4, b0, b2, b4); if (sc > best) best = sc;
-  sc = lookup(h3, h4, b0, b3, b4); if (sc > best) best = sc;
-  sc = lookup(h3, h4, b1, b2, b3); if (sc > best) best = sc;
-  sc = lookup(h3, h4, b1, b2, b4); if (sc > best) best = sc;
-  sc = lookup(h3, h4, b1, b3, b4); if (sc > best) best = sc;
-  sc = lookup(h3, h4, b2, b3, b4); if (sc > best) best = sc;
-  
+  for (let hi: i32 = 0; hi < 10; hi++) {
+    const h0: i32 = unchecked(hCards[unchecked(H2_0[hi])]);
+    const h1: i32 = unchecked(hCards[unchecked(H2_1[hi])]);
+    for (let bi: i32 = 0; bi < 10; bi++) {
+      const sc: i32 = lookup(h0, h1, unchecked(bCards[unchecked(B3_0[bi])]), unchecked(bCards[unchecked(B3_1[bi])]), unchecked(bCards[unchecked(B3_2[bi])]));
+      if (sc > best) best = sc;
+    }
+  }
   return best;
 }
 

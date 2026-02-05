@@ -5,15 +5,20 @@
 A browser-based 5-Card Omaha equity calculator similar to ProPokerTools Oracle. The calculator supports board input (0-5 cards), multiple player hands (5 cards each), concatenated card notation (e.g., "7s6hJdQc8c"), and performs exhaustive equity calculations with accurate Omaha hand evaluation (exactly 2 hole cards + 3 board cards). Built as a client-side React TypeScript application.
 
 ## Recent Changes (Feb 2026)
-- Implemented WebAssembly (AssemblyScript) poker hand evaluator for improved performance
+- **IndexedDB Caching with Suit Canonicalization**: 2-player preflop results are cached
+  - First calculation: ~4-5s for 850,668 runouts
+  - Cached lookups: ~10-15ms (instant)
+  - Suit canonicalization: hands like AsKs vs 2c3c share cache with AhKh vs 2d3d
+  - UI shows green "Cached" badge for cached results
+- **Two Plus Two Lookup Table**: 10MB precomputed hand ranks for O(1) evaluation
+- WebAssembly (AssemblyScript) poker hand evaluator
 - Always exhaustive enumeration like ProPokerTools Oracle:
-  - Preflop (no board): 850,668 runouts in **~3.75s** (optimized from 11s)
+  - Preflop (no board): 850,668 runouts
   - Flop: ~741 runouts in ~6ms
   - Turn/River: few dozen runouts in <1ms
 - WASM optimizations:
   - Sorting-based hand evaluation (no loops over 13 ranks)
   - Global static arrays to avoid allocations in hot loops
-  - Lookup tables for flush/straight detection (8KB)
   - @inline decorators on critical functions
 - Results match ProPokerTools Oracle exactly (52.128% vs 52.128%)
 - UI shows "X runouts (exact)" for all calculations

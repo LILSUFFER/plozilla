@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import { type Card, getSuitSymbol, getSuitColor, getRankDisplay } from '@/lib/poker-evaluator';
 import { parseCardsConcat, type PlayerInput, type CalculationResult } from '@/lib/equity-calculator';
 import { calculateEquityFast } from '@/lib/wasm-equity';
-import { calculateEquityParallelWasm } from '@/lib/parallel-wasm-equity';
+import { getCachedEquity, setCachedEquity, getMemoryCacheSize } from '@/lib/equity-cache';
 import { Card as UICard, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -121,6 +121,7 @@ export function EquityCalculator() {
   const [progress, setProgress] = useState(0);
   const [resetKey, setResetKey] = useState(0);
   const [calcTime, setCalcTime] = useState<number | null>(null);
+  const [isCached, setIsCached] = useState(false);
   
   const allUsedCards = new Set<string>();
   for (const card of board) {
@@ -180,18 +181,63 @@ export function EquityCalculator() {
     
     setIsCalculating(true);
     
-    // Use WASM for all calculations
     const start = performance.now();
+    const isPreflop = board.length === 0;
+    const is2Player = validPlayers.length === 2;
     
-    // Use setTimeout to allow UI update before heavy calc
-    setTimeout(() => {
-      const calcResult = calculateEquityFast(players, board);
-      const elapsed = performance.now() - start;
-      console.log(`WASM: ${elapsed.toFixed(0)}ms for ${calcResult.totalTrials} trials`);
-      setCalcTime(elapsed);
-      setResult(calcResult);
-      setIsCalculating(false);
-    }, 10);
+    // Try cache for 2-player preflop
+    if (isPreflop && is2Player) {
+      getCachedEquity(validPlayers[0].cards, validPlayers[1].cards).then(cached => {
+        if (cached) {
+          const elapsed = performance.now() - start;
+          console.log(`Cache hit! ${elapsed.toFixed(1)}ms (cache size: ${getMemoryCacheSize()})`);
+          setCalcTime(elapsed);
+          setIsCached(true);
+          setResult({
+            results: [
+              { playerId: validPlayers[0].id, wins: 0, ties: 0, total: cached.runouts, equity: cached.equity1 },
+              { playerId: validPlayers[1].id, wins: 0, ties: 0, total: cached.runouts, equity: cached.equity2 }
+            ],
+            totalTrials: cached.runouts,
+            isExhaustive: true
+          });
+          setIsCalculating(false);
+        } else {
+          // Calculate and cache
+          setTimeout(() => {
+            const calcResult = calculateEquityFast(players, board);
+            const elapsed = performance.now() - start;
+            console.log(`WASM: ${elapsed.toFixed(0)}ms for ${calcResult.totalTrials} trials (caching...)`);
+            setCalcTime(elapsed);
+            setIsCached(false);
+            setResult(calcResult);
+            setIsCalculating(false);
+            
+            // Cache the result
+            if (calcResult.results.length === 2) {
+              setCachedEquity(
+                validPlayers[0].cards,
+                validPlayers[1].cards,
+                calcResult.results[0].equity,
+                calcResult.results[1].equity,
+                calcResult.totalTrials
+              );
+            }
+          }, 10);
+        }
+      });
+    } else {
+      // Non-cached calculation
+      setIsCached(false);
+      setTimeout(() => {
+        const calcResult = calculateEquityFast(players, board);
+        const elapsed = performance.now() - start;
+        console.log(`WASM: ${elapsed.toFixed(0)}ms for ${calcResult.totalTrials} trials`);
+        setCalcTime(elapsed);
+        setResult(calcResult);
+        setIsCalculating(false);
+      }, 10);
+    }
   };
   
   const validPlayerCount = players.filter(p => p.cards.length >= 2 && p.cards.length <= 5).length;
@@ -317,6 +363,11 @@ export function EquityCalculator() {
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <h3 className="font-semibold">Equity Results</h3>
               <div className="flex items-center gap-2">
+                {isCached && (
+                  <Badge variant="default" className="bg-green-600" data-testid="badge-cached">
+                    Cached
+                  </Badge>
+                )}
                 {calcTime !== null && (
                   <Badge variant="outline" data-testid="badge-calc-time">
                     {calcTime < 1000 ? `${calcTime.toFixed(0)}ms` : `${(calcTime / 1000).toFixed(2)}s`}
