@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import { type Card, getSuitSymbol, getSuitColor, getRankDisplay } from '@/lib/poker-evaluator';
 import { parseCardsConcat, type PlayerInput, type CalculationResult } from '@/lib/equity-calculator';
 import { calculateEquityFast } from '@/lib/wasm-equity';
+import { calculateEquityParallel } from '@/lib/worker-pool';
 import { Card as UICard, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
