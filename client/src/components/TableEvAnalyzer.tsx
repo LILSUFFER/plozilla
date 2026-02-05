@@ -29,6 +29,7 @@ const FISH_VPIP_PRESETS = [
 ];
 
 const FISH_INDEX = 3;
+const HERO_INDEX = 4; // Left of Fish (distance 1 = 1.5x coefficient)
 const CLOCKWISE_INDICES = [3, 4, 5, 0, 1, 2];
 
 const seatPositions = [
@@ -39,14 +40,6 @@ const seatPositions = [
   { top: '82%', left: '32%' },
   { top: '50%', left: '8%' },
 ];
-
-const posLabels: Record<number, string> = {
-  1: '1.5x',
-  2: '1.1x',
-  3: '0.9x',
-  4: '0.8x',
-  5: '0.7x',
-};
 
 function getActiveDistanceClockwise(fromIndex: number, toIndex: number, seats: SeatConfig[]): number {
   const fromPos = CLOCKWISE_INDICES.indexOf(fromIndex);
@@ -81,7 +74,7 @@ function getPositionCoefficient(distance: number): number {
 
 const initialSeats: SeatConfig[] = Array(6).fill(null).map((_, i) => ({
   seatIndex: i,
-  type: i === FISH_INDEX ? 'Fish' : i === 0 ? 'Hero' : 'Reg',
+  type: i === FISH_INDEX ? 'Fish' : i === HERO_INDEX ? 'Hero' : 'Reg',
   fishVpip: i === FISH_INDEX ? '90' : undefined,
   fishRake: i === FISH_INDEX ? 41 : undefined,
   fishLoserate: i === FISH_INDEX ? 200 : undefined,
@@ -106,11 +99,11 @@ export function TableEvAnalyzer() {
 
   const calculation = useMemo(() => {
     const heroSeat = seats.find(s => s.type === 'Hero');
-    if (!heroSeat) return { totalEv: 0, breakdowns: {} as Record<number, number>, nReg: 0, debug: [] as CalculationItem[] };
+    if (!heroSeat) return { totalEv: 0, breakdowns: {} as Record<number, number>, nReg: 0, debug: [] as CalculationItem[], heroRake };
 
     const nReg = seats.filter(s => s.type === 'Reg' || s.type === 'Hero').length;
 
-    let totalEv = 0;
+    let fishEvSum = 0;
     const breakdowns: Record<number, number> = {};
     const debug: CalculationItem[] = [];
 
@@ -124,9 +117,9 @@ export function TableEvAnalyzer() {
         const posCoef = getPositionCoefficient(dist);
         
         const realLoserate = loserate - rake;
-        const evFromThisFish = ((realLoserate / nReg) * posCoef) - heroRake;
+        const evFromThisFish = (realLoserate / nReg) * posCoef;
         
-        totalEv += evFromThisFish;
+        fishEvSum += evFromThisFish;
         breakdowns[seat.seatIndex] = evFromThisFish;
         
         debug.push({
@@ -142,7 +135,10 @@ export function TableEvAnalyzer() {
       }
     });
 
-    return { totalEv, breakdowns, nReg, debug };
+    // Hero rake is subtracted only ONCE (not per fish)
+    const totalEv = fishEvSum - heroRake;
+
+    return { totalEv, breakdowns, nReg, debug, heroRake };
   }, [seats, heroRake]);
 
   const handleSeatClick = (index: number) => {
