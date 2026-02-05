@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { Calculator, Zap, Target, TrendingUp, ChevronRight } from "lucide-react";
+import { Calculator, Zap, Target, TrendingUp, ChevronRight, MessageCircle } from "lucide-react";
 import { SiGoogle } from "react-icons/si";
 
 export default function Landing() {
@@ -21,6 +21,11 @@ export default function Landing() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <Button variant="ghost" size="icon" asChild data-testid="button-telegram">
+              <a href="https://t.me/plozilla_chat" target="_blank" rel="noopener noreferrer">
+                <MessageCircle className="w-4 h-4" />
+              </a>
+            </Button>
             <ThemeToggle />
             <Button asChild data-testid="button-app">
               <a href="/api/auth/google">
