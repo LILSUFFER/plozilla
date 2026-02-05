@@ -6,12 +6,13 @@ import connectPg from "connect-pg-simple";
 import { authStorage } from "./storage";
 
 export function getSession() {
-  const sessionTtl = 7 * 24 * 60 * 60 * 1000; // 1 week
+  const sessionTtlMs = 7 * 24 * 60 * 60 * 1000; // 1 week in milliseconds
+  const sessionTtlSec = 7 * 24 * 60 * 60; // 1 week in seconds
   const pgStore = connectPg(session);
   const sessionStore = new pgStore({
     conString: process.env.DATABASE_URL,
     createTableIfMissing: true,
-    ttl: sessionTtl,
+    ttl: sessionTtlSec, // connect-pg-simple expects seconds
     tableName: "sessions",
   });
   return session({
@@ -22,7 +23,7 @@ export function getSession() {
     cookie: {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      maxAge: sessionTtl,
+      maxAge: sessionTtlMs, // express-session cookie expects milliseconds
     },
   });
 }
@@ -33,9 +34,13 @@ export async function setupGoogleAuth(app: Express) {
   app.use(passport.initialize());
   app.use(passport.session());
 
-  const callbackURL = process.env.NODE_ENV === "production"
-    ? "https://plozilla.com/api/auth/google/callback"
-    : `https://${process.env.REPLIT_DEV_DOMAIN}/api/auth/google/callback`;
+  const callbackURL = process.env.GOOGLE_CALLBACK_URL || (
+    process.env.NODE_ENV === "production"
+      ? "https://plozilla.com/api/auth/google/callback"
+      : process.env.REPLIT_DEV_DOMAIN 
+        ? `https://${process.env.REPLIT_DEV_DOMAIN}/api/auth/google/callback`
+        : "http://localhost:5000/api/auth/google/callback"
+  );
 
   passport.use(
     new GoogleStrategy(
