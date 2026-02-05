@@ -1,291 +1,439 @@
 import { useState, useMemo } from 'react';
 import { Input } from '@/components/ui/input';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Slider } from '@/components/ui/slider';
-import { Card } from '@/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { cn } from '@/lib/utils';
+import { RotateCcw, Settings } from 'lucide-react';
 
-type PlayerType = 'hero' | 'reg' | 'fish' | 'empty';
+type PlayerType = 'Hero' | 'Reg' | 'Fish' | 'Empty';
 
-interface Seat {
+interface SeatConfig {
+  seatIndex: number;
   type: PlayerType;
-  vpip?: number;
+  fishVpip?: string;
+  fishRake?: number;
+  fishLoserate?: number;
 }
 
-const POSITION_NAMES = ['BB', 'UTG', 'MP', 'CO', 'BTN', 'SB'];
-const POSITION_COEFFICIENTS: Record<string, number> = {
-  'BTN': 1.5,
-  'CO': 1.1,
-  'MP': 0.7,
-  'UTG': 0.8,
-  'BB': 0.9,
-  'SB': 0.9,
-};
-
-const DEFAULT_SEATS: Seat[] = [
-  { type: 'hero' },
-  { type: 'reg' },
-  { type: 'reg' },
-  { type: 'fish', vpip: 90 },
-  { type: 'reg' },
-  { type: 'reg' },
+const FISH_VPIP_PRESETS = [
+  { label: '60%', value: '60', rake: 18, loserate: 45 },
+  { label: '65%', value: '65', rake: 20, loserate: 60 },
+  { label: '70%', value: '70', rake: 22, loserate: 70 },
+  { label: '75%', value: '75', rake: 26, loserate: 100 },
+  { label: '80%', value: '80', rake: 30, loserate: 130 },
+  { label: '85%', value: '85', rake: 34, loserate: 160 },
+  { label: '90%', value: '90', rake: 41, loserate: 200 },
 ];
 
+const FISH_INDEX = 3;
+const CLOCKWISE_INDICES = [3, 4, 5, 0, 1, 2];
+
+const seatPositions = [
+  { top: '12%', left: '32%' },
+  { top: '12%', left: '68%' },
+  { top: '50%', left: '92%' },
+  { top: '82%', left: '68%' },
+  { top: '82%', left: '32%' },
+  { top: '50%', left: '8%' },
+];
+
+const posLabels: Record<number, string> = {
+  1: '1.5x',
+  2: '1.1x',
+  3: '0.9x',
+  4: '0.8x',
+  5: '0.7x',
+};
+
+function getActiveDistanceClockwise(fromIndex: number, toIndex: number, seats: SeatConfig[]): number {
+  const fromPos = CLOCKWISE_INDICES.indexOf(fromIndex);
+  const toPos = CLOCKWISE_INDICES.indexOf(toIndex);
+  if (fromPos === -1 || toPos === -1) return 0;
+  
+  let activeCount = 0;
+  let currPos = fromPos;
+  
+  while (currPos !== toPos) {
+    currPos = (currPos + 1) % 6;
+    const seatAtPos = seats.find(s => s.seatIndex === CLOCKWISE_INDICES[currPos]);
+    if (seatAtPos && seatAtPos.type !== 'Empty') {
+      activeCount++;
+    }
+    if (activeCount > 6) break;
+  }
+  
+  return activeCount;
+}
+
+function getPositionCoefficient(distance: number): number {
+  switch (distance) {
+    case 1: return 1.5;
+    case 2: return 1.1;
+    case 3: return 0.9;
+    case 4: return 0.8;
+    case 5: return 0.7;
+    default: return 0;
+  }
+}
+
+const initialSeats: SeatConfig[] = Array(6).fill(null).map((_, i) => ({
+  seatIndex: i,
+  type: i === FISH_INDEX ? 'Fish' : i === 0 ? 'Hero' : 'Reg',
+  fishVpip: i === FISH_INDEX ? '90' : undefined,
+  fishRake: i === FISH_INDEX ? 41 : undefined,
+  fishLoserate: i === FISH_INDEX ? 200 : undefined,
+}));
+
+interface CalculationItem {
+  fishIndex: number;
+  vpip: string;
+  loserate: number;
+  rake: number;
+  realLoserate: number;
+  dist: number;
+  posCoef: number;
+  ev: number;
+}
+
 export function TableEvAnalyzer() {
-  const [seats, setSeats] = useState<Seat[]>(DEFAULT_SEATS);
-  const [heroRake, setHeroRake] = useState<number>(11);
-  const tableRake = 41;
+  const [seats, setSeats] = useState<SeatConfig[]>(initialSeats);
+  const [selectedSeatIndex, setSelectedSeatIndex] = useState<number | null>(null);
+  const [heroRake, setHeroRake] = useState(11);
+  const [dialogConfig, setDialogConfig] = useState<SeatConfig | null>(null);
 
-  const heroSeatIndex = seats.findIndex(s => s.type === 'hero');
-  const heroPosition = POSITION_NAMES[heroSeatIndex];
-  const heroCoef = POSITION_COEFFICIENTS[heroPosition] || 1;
+  const calculation = useMemo(() => {
+    const heroSeat = seats.find(s => s.type === 'Hero');
+    if (!heroSeat) return { totalEv: 0, breakdowns: {} as Record<number, number>, nReg: 0, debug: [] as CalculationItem[] };
 
-  const cyclePlayerType = (index: number) => {
-    setSeats(prev => {
-      const newSeats = [...prev];
-      const current = newSeats[index].type;
-      const types: PlayerType[] = ['hero', 'reg', 'fish', 'empty'];
-      const currentIdx = types.indexOf(current);
-      const nextType = types[(currentIdx + 1) % types.length];
-      
-      if (nextType === 'hero') {
-        newSeats.forEach((s, i) => {
-          if (s.type === 'hero') {
-            newSeats[i] = { type: 'reg' };
-          }
+    const nReg = seats.filter(s => s.type === 'Reg' || s.type === 'Hero').length;
+
+    let totalEv = 0;
+    const breakdowns: Record<number, number> = {};
+    const debug: CalculationItem[] = [];
+
+    seats.forEach(seat => {
+      if (seat.type === 'Fish') {
+        const preset = FISH_VPIP_PRESETS.find(p => p.value === seat.fishVpip);
+        const loserate = preset?.loserate || seat.fishLoserate || 0;
+        const rake = preset?.rake || seat.fishRake || 0;
+        
+        const dist = getActiveDistanceClockwise(seat.seatIndex, heroSeat.seatIndex, seats);
+        const posCoef = getPositionCoefficient(dist);
+        
+        const realLoserate = loserate - rake;
+        const evFromThisFish = ((realLoserate / nReg) * posCoef) - heroRake;
+        
+        totalEv += evFromThisFish;
+        breakdowns[seat.seatIndex] = evFromThisFish;
+        
+        debug.push({
+          fishIndex: seat.seatIndex,
+          vpip: seat.fishVpip || '90',
+          loserate,
+          rake,
+          realLoserate,
+          dist,
+          posCoef,
+          ev: evFromThisFish
         });
       }
-      
-      newSeats[index] = { 
-        type: nextType,
-        vpip: nextType === 'fish' ? 50 : undefined
-      };
-      return newSeats;
     });
+
+    return { totalEv, breakdowns, nReg, debug };
+  }, [seats, heroRake]);
+
+  const handleSeatClick = (index: number) => {
+    setSelectedSeatIndex(index);
+    setDialogConfig({ ...seats[index] });
   };
 
-  const updateVpip = (index: number, vpip: number) => {
+  const handleSeatSave = () => {
+    if (dialogConfig === null || selectedSeatIndex === null) return;
+    
     setSeats(prev => {
-      const newSeats = [...prev];
-      newSeats[index] = { ...newSeats[index], vpip };
-      return newSeats;
+      let updated = prev.map((s, i) => i === selectedSeatIndex ? dialogConfig : s);
+      if (dialogConfig.type === 'Hero') {
+        updated = updated.map((s, i) => 
+          i !== selectedSeatIndex && s.type === 'Hero' ? { ...s, type: 'Reg' as PlayerType } : s
+        );
+      }
+      return updated;
+    });
+    setSelectedSeatIndex(null);
+    setDialogConfig(null);
+  };
+
+  const resetTable = () => {
+    setSeats(initialSeats);
+    setHeroRake(11);
+  };
+
+  const handleTypeChange = (type: PlayerType) => {
+    if (!dialogConfig) return;
+    const preset = FISH_VPIP_PRESETS.find(p => p.value === '90');
+    setDialogConfig({
+      ...dialogConfig,
+      type,
+      fishVpip: type === 'Fish' ? '90' : undefined,
+      fishRake: type === 'Fish' ? preset?.rake : undefined,
+      fishLoserate: type === 'Fish' ? preset?.loserate : undefined,
     });
   };
 
-  const evCalculation = useMemo(() => {
-    const fishSeats = seats
-      .map((seat, index) => ({ seat, index }))
-      .filter(({ seat }) => seat.type === 'fish');
-    
-    const regsCount = seats.filter(s => s.type === 'reg' || s.type === 'hero').length;
-    
-    if (fishSeats.length === 0 || regsCount === 0) {
-      return { totalEv: 0, contributions: [], regsCount };
-    }
-    
-    const contributions = fishSeats.map(({ seat, index }) => {
-      const vpip = seat.vpip || 50;
-      const fishLoss = (vpip / 100) * 200;
-      const lossAfterRake = fishLoss - tableRake;
-      const sharePerReg = lossAfterRake / regsCount;
-      const evContribution = sharePerReg * heroCoef - heroRake;
-      
-      return {
-        seatIndex: index,
-        vpip,
-        fishLoss,
-        lossAfterRake,
-        sharePerReg,
-        evContribution,
-      };
+  const handleVpipChange = (value: string) => {
+    if (!dialogConfig) return;
+    const preset = FISH_VPIP_PRESETS.find(p => p.value === value);
+    setDialogConfig({
+      ...dialogConfig,
+      fishVpip: value,
+      fishRake: preset?.rake || 0,
+      fishLoserate: preset?.loserate || 0,
     });
-
-    const totalEv = contributions.reduce((sum, c) => sum + c.evContribution, 0);
-
-    return { totalEv, contributions, regsCount };
-  }, [seats, heroRake, heroCoef]);
-
-  const getPlayerColor = (type: PlayerType): string => {
-    switch (type) {
-      case 'hero': return 'bg-blue-500 hover:bg-blue-600';
-      case 'reg': return 'bg-slate-500 hover:bg-slate-600';
-      case 'fish': return 'bg-emerald-500 hover:bg-emerald-600';
-      case 'empty': return 'bg-slate-700 hover:bg-slate-600';
-      default: return 'bg-slate-700';
-    }
   };
-
-  const getPlayerLabel = (type: PlayerType): string => {
-    switch (type) {
-      case 'hero': return 'HERO';
-      case 'reg': return 'REG';
-      case 'fish': return 'FISH';
-      case 'empty': return '';
-      default: return '';
-    }
-  };
-
-  const seatPositions = [
-    { x: 50, y: 5 },
-    { x: 90, y: 25 },
-    { x: 90, y: 75 },
-    { x: 50, y: 95 },
-    { x: 10, y: 75 },
-    { x: 10, y: 25 },
-  ];
 
   return (
-    <div className="h-[calc(100vh-180px)] flex gap-8 p-2">
-      <div className="flex-1 flex flex-col gap-4 min-w-0">
-        <Card className="p-6">
-          <div className="text-sm text-muted-foreground mb-1">Total Expected Value</div>
-          <div className={`text-5xl font-bold tracking-tight ${evCalculation.totalEv >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-            {evCalculation.totalEv >= 0 ? '+' : ''}{evCalculation.totalEv.toFixed(2)}bb/100
+    <div className="h-[calc(100vh-160px)] flex gap-6">
+      <Card className="w-[340px] flex-shrink-0 flex flex-col">
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-xs uppercase tracking-widest text-muted-foreground">
+              Total Expected Value
+            </CardTitle>
+            <Button variant="ghost" size="sm" onClick={resetTable} className="h-7 px-2">
+              <RotateCcw className="w-3 h-3 mr-1" />
+              Reset
+            </Button>
           </div>
-        </Card>
+        </CardHeader>
+        <CardContent className="flex-1 overflow-auto">
+          <div className="flex items-baseline gap-2 mb-6">
+            <span className={cn(
+              "text-4xl font-mono font-bold tracking-tighter",
+              calculation.totalEv > 0 ? "text-emerald-500" : calculation.totalEv < 0 ? "text-red-500" : "text-foreground"
+            )}>
+              {calculation.totalEv > 0 ? "+" : ""}{calculation.totalEv.toFixed(2)}
+            </span>
+            <span className="text-lg text-muted-foreground">bb/100</span>
+          </div>
+          
+          <div className="space-y-3 mb-6">
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Regs + Hero (N-reg)</span>
+              <span className="font-mono font-semibold">{calculation.nReg}</span>
+            </div>
+            <div className="flex justify-between text-sm items-center">
+              <span className="text-muted-foreground">Hero Rake (bb/100)</span>
+              <Input 
+                type="number" 
+                value={heroRake}
+                onChange={(e) => setHeroRake(Number(e.target.value))}
+                className="w-20 h-7 text-sm font-mono text-right"
+                data-testid="input-hero-rake"
+              />
+            </div>
+          </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <Card className="p-4">
-            <div className="text-sm text-muted-foreground mb-1">Regs + Hero (N-reg)</div>
-            <div className="text-3xl font-bold">{evCalculation.regsCount}</div>
-          </Card>
-          <Card className="p-4">
-            <Label htmlFor="hero-rake" className="text-sm text-muted-foreground">Hero Rake (bb/100)</Label>
-            <Input
-              id="hero-rake"
-              type="number"
-              value={heroRake}
-              onChange={(e) => setHeroRake(parseFloat(e.target.value) || 0)}
-              className="mt-1 text-xl font-bold h-10"
-              data-testid="input-hero-rake"
-            />
-          </Card>
-        </div>
-
-        {evCalculation.contributions.length > 0 && (
-          <Card className="p-4 flex-1 overflow-auto">
-            <div className="text-sm font-semibold mb-3">Calculation Details</div>
-            <div className="space-y-3">
-              {evCalculation.contributions.map((contrib, i) => (
-                <div key={i} className="bg-muted/50 rounded-lg p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="font-semibold">Against Fish (Seat {contrib.seatIndex + 1})</span>
-                    <span className="bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-medium px-2 py-1 rounded-full">
-                      VPIP {contrib.vpip}%
-                    </span>
+          {calculation.debug.length > 0 && (
+            <div className="space-y-4 pt-4 border-t">
+              <div className="text-xs font-bold uppercase tracking-wider text-primary">Calculation Details</div>
+              {calculation.debug.map((item, i) => (
+                <div key={i} className="space-y-2 bg-muted/50 p-3 rounded-lg">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-xs font-bold text-orange-500">Against Fish (Seat {item.fishIndex + 1})</span>
+                    <span className="text-[10px] bg-orange-500/20 text-orange-500 px-1.5 py-0.5 rounded">VPIP {item.vpip}%</span>
                   </div>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Loss - Rake:</span>
-                      <span className="font-medium">{contrib.fishLoss.toFixed(0)} - {tableRake} = {contrib.lossAfterRake.toFixed(0)}</span>
+                      <span>{item.loserate} - {item.rake} = {item.realLoserate}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">Share (N={evCalculation.regsCount}):</span>
-                      <span className="font-medium">{contrib.sharePerReg.toFixed(1)}</span>
+                      <span className="text-muted-foreground">Share (N={calculation.nReg}):</span>
+                      <span>{(item.realLoserate / calculation.nReg).toFixed(1)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Position Coef:</span>
-                      <span className="font-medium">{heroCoef.toFixed(1)}x</span>
+                      <span className="text-primary font-bold">{item.posCoef}x</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">My Rake:</span>
-                      <span className="font-medium">-{heroRake}</span>
+                      <span className="text-red-500">-{heroRake}</span>
                     </div>
                   </div>
-                  <div className={`text-sm font-semibold mt-3 pt-2 border-t ${contrib.evContribution >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-                    Fish EV contribution: {contrib.evContribution >= 0 ? '+' : ''}{contrib.evContribution.toFixed(2)}
+                  <div className="flex justify-between border-t pt-2 mt-2">
+                    <span className="text-[11px] text-muted-foreground font-semibold">Fish EV contribution:</span>
+                    <span className={cn("text-[11px] font-bold", item.ev > 0 ? "text-emerald-500" : "text-red-500")}>
+                      {item.ev > 0 ? "+" : ""}{item.ev.toFixed(2)}
+                    </span>
                   </div>
                 </div>
               ))}
+              <div className="text-[10px] text-muted-foreground italic">
+                Final EV = Sum of all Fish EV contributions
+              </div>
             </div>
-            <div className="text-xs text-muted-foreground mt-4 pt-3 border-t">
-              Final EV = Sum of all Fish EV contributions
-            </div>
-          </Card>
-        )}
-      </div>
+          )}
+        </CardContent>
+      </Card>
 
-      <Card className="w-[420px] flex-shrink-0 p-6 flex flex-col">
-        <div className="text-center font-bold text-lg mb-4">6-MAX Table</div>
-        <div className="flex-1 flex items-center justify-center">
-          <div className="relative w-[340px] h-[280px]">
-            <div 
-              className="absolute rounded-[50%] bg-gradient-to-b from-emerald-600 to-emerald-700 shadow-[inset_0_-8px_20px_rgba(0,0,0,0.3),0_4px_12px_rgba(0,0,0,0.2)]"
-              style={{
-                left: '15%',
-                right: '15%',
-                top: '15%',
-                bottom: '15%',
-                border: '12px solid #5c4033',
-                boxShadow: 'inset 0 -8px 20px rgba(0,0,0,0.3), 0 4px 12px rgba(0,0,0,0.2), inset 0 2px 4px rgba(255,255,255,0.1)'
-              }}
-            />
-            
-            {seats.map((seat, index) => {
-              const pos = seatPositions[index];
-              const posName = POSITION_NAMES[index];
-              const coef = POSITION_COEFFICIENTS[posName];
-              const isFish = seat.type === 'fish';
-              const isHero = seat.type === 'hero';
+      <Card className="flex-1 flex flex-col">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-center text-lg">6-MAX Table</CardTitle>
+        </CardHeader>
+        <CardContent className="flex-1 flex items-center justify-center">
+          <div className="relative w-full max-w-xl aspect-[16/10]">
+            <div className="absolute inset-0 rounded-[100px] border-2 border-slate-700/50 bg-slate-800 shadow-2xl" />
+            <div className="absolute inset-6 rounded-[80px] border border-slate-600/50 bg-slate-700 flex items-center justify-center">
+              <span className="text-slate-600 font-bold text-3xl tracking-[0.3em] select-none">6-MAX</span>
+            </div>
+
+            {seats.map((seat, i) => {
+              const ev = calculation.breakdowns[i];
+              const isFish = seat.type === 'Fish';
+              const isHero = seat.type === 'Hero';
+              const isReg = seat.type === 'Reg';
+              const isEmpty = seat.type === 'Empty';
+
+              let distLabel = '';
+              const fishSeats = seats.filter(s => s.type === 'Fish');
+              if (fishSeats.length > 0 && !isFish && !isEmpty) {
+                const fishSeat = fishSeats[0];
+                const dist = getActiveDistanceClockwise(fishSeat.seatIndex, i, seats);
+                distLabel = posLabels[dist] || '';
+              }
 
               return (
-                <div
-                  key={index}
-                  className="absolute transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-10"
-                  style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
+                <button
+                  key={i}
+                  style={{
+                    position: 'absolute',
+                    top: seatPositions[i].top,
+                    left: seatPositions[i].left,
+                    transform: 'translate(-50%, -50%)',
+                  }}
+                  onClick={() => handleSeatClick(i)}
+                  className="z-10 w-20 h-20 flex flex-col items-center justify-center group focus:outline-none"
+                  data-testid={`seat-${i}`}
                 >
-                  <div className={`text-xs font-medium mb-1 ${isHero ? 'text-blue-400' : 'text-muted-foreground'}`}>
-                    {coef.toFixed(1)}x
-                  </div>
-                  <div
-                    className={`w-14 h-14 rounded-full ${getPlayerColor(seat.type)} flex flex-col items-center justify-center cursor-pointer shadow-lg transition-all duration-150 active:scale-95 ring-2 ${isHero ? 'ring-blue-400' : 'ring-white/20'}`}
-                    onClick={() => cyclePlayerType(index)}
-                    data-testid={`seat-${index}`}
-                  >
-                    <span className="text-white font-bold text-xs drop-shadow">
-                      {getPlayerLabel(seat.type)}
-                    </span>
-                    {isFish && (
-                      <span className="text-white/90 text-[10px] font-medium">{seat.vpip}%</span>
-                    )}
-                  </div>
-                  <div className="text-[10px] text-muted-foreground mt-1">{posName}</div>
-                  {isFish && (
-                    <div className="mt-1 w-20">
-                      <Slider
-                        value={[seat.vpip || 50]}
-                        onValueChange={([value]) => updateVpip(index, value)}
-                        min={20}
-                        max={100}
-                        step={5}
-                        className="w-full"
-                        data-testid={`vpip-slider-${index}`}
-                      />
+                  {distLabel && (
+                    <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-slate-900 border border-slate-600 text-[9px] font-bold px-1.5 py-0.5 rounded text-slate-300 z-20">
+                      {distLabel}
                     </div>
                   )}
-                </div>
+                  
+                  <div className={cn(
+                    "w-14 h-14 rounded-full flex flex-col items-center justify-center border-2 transition-all shadow-lg",
+                    isHero ? "bg-emerald-500/20 border-emerald-500 text-emerald-500" :
+                    isFish ? "bg-orange-500/20 border-orange-500 text-orange-500" :
+                    isReg ? "bg-slate-400/20 border-slate-400 text-slate-400" :
+                    "bg-slate-800 border-slate-600 text-slate-600 hover:border-slate-500"
+                  )}>
+                    <span className="text-[11px] font-bold uppercase">
+                      {seat.type === 'Empty' ? 'EMPTY' : seat.type.toUpperCase()}
+                    </span>
+                    {isFish && (
+                      <span className="text-[9px] font-medium">{seat.fishVpip}%</span>
+                    )}
+                  </div>
+
+                  {ev !== undefined && !isEmpty && !isFish && (
+                    <div className={cn(
+                      "mt-1 text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-slate-900 border border-slate-700",
+                      ev > 0 ? "text-emerald-500" : ev < 0 ? "text-red-500" : "text-slate-500"
+                    )}>
+                      {ev > 0 ? "+" : ""}{ev.toFixed(1)}
+                    </div>
+                  )}
+                </button>
               );
             })}
           </div>
-        </div>
-        
-        <div className="mt-4 pt-4 border-t">
-          <div className="text-xs text-muted-foreground text-center mb-3">Click seats to change player type</div>
-          <div className="flex justify-center gap-6">
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 rounded-full bg-blue-500" />
-              <span className="text-xs">Hero</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 rounded-full bg-slate-500" />
-              <span className="text-xs">Reg</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 rounded-full bg-emerald-500" />
-              <span className="text-xs">Fish</span>
-            </div>
-          </div>
-        </div>
+        </CardContent>
       </Card>
+
+      <Dialog open={selectedSeatIndex !== null} onOpenChange={(open) => !open && setSelectedSeatIndex(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Settings className="w-5 h-5 text-primary" />
+              Configure Seat {(selectedSeatIndex ?? 0) + 1}
+            </DialogTitle>
+          </DialogHeader>
+
+          {dialogConfig && (
+            <div className="space-y-6 py-4">
+              <div className="space-y-2">
+                <Label>Player Type</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['Hero', 'Reg', 'Fish', 'Empty'] as PlayerType[]).map((type) => (
+                    <div
+                      key={type}
+                      onClick={() => handleTypeChange(type)}
+                      className={cn(
+                        "cursor-pointer rounded-lg border p-3 flex items-center justify-center transition-all",
+                        dialogConfig.type === type
+                          ? "border-primary bg-primary/10 text-primary ring-2 ring-primary/20"
+                          : "border-border hover:border-primary/50"
+                      )}
+                    >
+                      <span className="font-semibold">{type}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {dialogConfig.type === 'Fish' && (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>VPIP %</Label>
+                    <Select value={dialogConfig.fishVpip} onValueChange={handleVpipChange}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select VPIP..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {FISH_VPIP_PRESETS.map((preset) => (
+                          <SelectItem key={preset.value} value={preset.value}>
+                            {preset.label} (Loss: {preset.loserate}, Rake: {preset.rake})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-xs text-muted-foreground">Lose Rate (bb/100)</Label>
+                      <Input
+                        type="number"
+                        value={dialogConfig.fishLoserate || 0}
+                        onChange={(e) => setDialogConfig({ ...dialogConfig, fishLoserate: Number(e.target.value) })}
+                        disabled
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs text-muted-foreground">Rake (bb/100)</Label>
+                      <Input
+                        type="number"
+                        value={dialogConfig.fishRake || 0}
+                        onChange={(e) => setDialogConfig({ ...dialogConfig, fishRake: Number(e.target.value) })}
+                        disabled
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setSelectedSeatIndex(null)}>Cancel</Button>
+            <Button onClick={handleSeatSave}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
