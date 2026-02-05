@@ -87,8 +87,8 @@ function evalPlayer(h: Uint8Array, hLen: number, b: Uint8Array): number {
   return best;
 }
 
-// Fast Monte Carlo - 5k samples for instant results (~100-150ms)
-const FAST_SAMPLES = 5000;
+// Monte Carlo samples - matching ProPokerTools exhaustive count
+const FAST_SAMPLES = 430000;
 
 export function calculateEquityFast(
   players: PlayerInput[],
