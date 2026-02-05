@@ -98,12 +98,13 @@ interface CalculationItem {
 export function TableEvAnalyzer() {
   const [seats, setSeats] = useState<SeatConfig[]>(initialSeats);
   const [selectedSeatIndex, setSelectedSeatIndex] = useState<number | null>(null);
-  const [heroRake, setHeroRake] = useState(11);
+  const [heroRake, setHeroRake] = useState(16);
+  const [rakeback, setRakeback] = useState(0);
   const [dialogConfig, setDialogConfig] = useState<SeatConfig | null>(null);
 
   const calculation = useMemo(() => {
     const heroSeat = seats.find(s => s.type === 'Hero');
-    if (!heroSeat) return { totalEv: 0, breakdowns: {} as Record<number, number>, nReg: 0, debug: [] as CalculationItem[], heroRake };
+    if (!heroSeat) return { totalEv: 0, breakdowns: {} as Record<number, number>, nReg: 0, debug: [] as CalculationItem[], heroRake, effectiveHeroRake: 0, rakeback: 0 };
 
     const nReg = seats.filter(s => s.type === 'Reg' || s.type === 'Hero').length;
 
@@ -139,11 +140,14 @@ export function TableEvAnalyzer() {
       }
     });
 
+    // Calculate effective hero rake after rakeback
+    const effectiveHeroRake = heroRake * (1 - rakeback / 100);
+    
     // Hero rake is subtracted only ONCE (not per fish)
-    const totalEv = fishEvSum - heroRake;
+    const totalEv = fishEvSum - effectiveHeroRake;
 
-    return { totalEv, breakdowns, nReg, debug, heroRake };
-  }, [seats, heroRake]);
+    return { totalEv, breakdowns, nReg, debug, heroRake, effectiveHeroRake, rakeback };
+  }, [seats, heroRake, rakeback]);
 
   const handleSeatClick = (index: number) => {
     setSelectedSeatIndex(index);
@@ -168,7 +172,8 @@ export function TableEvAnalyzer() {
 
   const resetTable = () => {
     setSeats(initialSeats);
-    setHeroRake(11);
+    setHeroRake(16);
+    setRakeback(0);
   };
 
   const handleTypeChange = (type: PlayerType) => {
@@ -234,6 +239,17 @@ export function TableEvAnalyzer() {
                 data-testid="input-hero-rake"
               />
             </div>
+            <div className="flex justify-between text-sm items-center">
+              <span className="text-muted-foreground">Rakeback (%)</span>
+              <Input 
+                type="number" 
+                value={rakeback}
+                min={0}
+                onChange={(e) => setRakeback(Math.max(0, Number(e.target.value)))}
+                className="w-20 h-7 text-sm font-mono text-right"
+                data-testid="input-rakeback"
+              />
+            </div>
           </div>
 
           {calculation.debug.length > 0 && (
@@ -273,8 +289,18 @@ export function TableEvAnalyzer() {
                   <span className="font-mono">{calculation.debug.reduce((sum, d) => sum + d.ev, 0).toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between text-[11px]">
-                  <span className="text-muted-foreground">Hero Rake (once):</span>
-                  <span className="text-red-500 font-mono">-{heroRake}</span>
+                  <span className="text-muted-foreground">Hero Rake:</span>
+                  <span className="font-mono">{heroRake}</span>
+                </div>
+                {rakeback > 0 && (
+                  <div className="flex justify-between text-[11px]">
+                    <span className="text-muted-foreground">Rakeback ({rakeback}%):</span>
+                    <span className="text-emerald-500 font-mono">+{(heroRake * rakeback / 100).toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-[11px]">
+                  <span className="text-muted-foreground">Effective Rake:</span>
+                  <span className="text-red-500 font-mono">-{calculation.effectiveHeroRake.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between border-t pt-2 mt-1">
                   <span className="text-[11px] font-semibold">Final EV:</span>
