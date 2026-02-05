@@ -273,8 +273,8 @@ export function TableEvAnalyzer() {
                   </div>
                   <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">Loss - Rake:</span>
-                      <span>{item.loserate} - {item.rake} = {item.realLoserate}</span>
+                      <span className="text-muted-foreground">Real Loserate:</span>
+                      <span>{item.realLoserate}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Share (N={calculation.nReg}):</span>
