@@ -515,7 +515,7 @@ export function EquityCalculator() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Calculator className="w-5 h-5" />
-          5-Card Omaha Equity Calculator
+          PLO5 Equity Calculator
         </CardTitle>
         <CardDescription>
           Enter hands (7s6hJdQc8c) or ranges (AA, KK+, AK$s). Ranges use Monte Carlo sampling.

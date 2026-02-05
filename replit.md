@@ -1,4 +1,4 @@
-# Poker Tools - 5-Card Omaha Equity Calculator
+# Plozilla - 5-Card Omaha Equity Calculator
 
 ## Overview
 

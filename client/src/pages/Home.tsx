@@ -3,7 +3,7 @@ import { EquityCalculator } from '@/components/EquityCalculator';
 import { Card as UICard, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { BookOpen, Spade, TrendingUp } from 'lucide-react';
+import { BookOpen, TrendingUp } from 'lucide-react';
 
 export default function Home() {
   return (
@@ -11,12 +11,14 @@ export default function Home() {
       <header className="border-b bg-card sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center">
-              <Spade className="w-6 h-6 text-primary-foreground" />
-            </div>
+            <img 
+              src="/godzilla-logo.png" 
+              alt="Plozilla Logo" 
+              className="w-10 h-10 rounded-lg"
+            />
             <div>
-              <h1 className="text-xl font-bold">Poker Tools</h1>
-              <p className="text-xs text-muted-foreground hidden sm:block">Equity Calculator & Hand Evaluator</p>
+              <h1 className="text-xl font-bold">Plozilla</h1>
+              <p className="text-xs text-muted-foreground hidden sm:block">5-Card Omaha Equity Calculator</p>
             </div>
           </div>
           <ThemeToggle />
@@ -177,7 +179,7 @@ export default function Home() {
       <footer className="border-t mt-12">
         <div className="container mx-auto px-4 py-6 text-center text-sm text-muted-foreground">
           <p>
-            Poker Tools - 5-Card Omaha Equity Calculator & Hand Evaluator
+            Plozilla - 5-Card Omaha Equity Calculator
           </p>
         </div>
       </footer>
