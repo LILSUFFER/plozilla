@@ -64,6 +64,15 @@ function parseCards(cardsStr: string): Card[] {
   return cards;
 }
 
+const RANK_ORDER: Record<string, number> = {
+  'A': 14, 'K': 13, 'Q': 12, 'J': 11, 'T': 10,
+  '9': 9, '8': 8, '7': 7, '6': 6, '5': 5, '4': 4, '3': 3, '2': 2
+};
+
+function sortCardsByRank(cards: Card[]): Card[] {
+  return [...cards].sort((a, b) => RANK_ORDER[b.rank] - RANK_ORDER[a.rank]);
+}
+
 function extractConcatenatedCards(str: string): Card[] {
   const cards: Card[] = [];
   let i = 0;
@@ -107,14 +116,14 @@ export function parseHandHistory(text: string): ParsedHandHistory | null {
   // Format 1: PokerStars style - "Dealt to Hero [cards]"
   const heroMatch1 = text.match(/Dealt to Hero \[([^\]]+)\]/i);
   if (heroMatch1) {
-    result.heroHand = parseCards(heroMatch1[1]);
+    result.heroHand = sortCardsByRank(parseCards(heroMatch1[1]));
   }
   
   // Format 2: DriveHUD style - "Dealt to Hero: cards"
   if (!result.heroHand) {
     const heroMatch2 = text.match(/Dealt to Hero:\s*([^\n]+)/i);
     if (heroMatch2) {
-      result.heroHand = parseCards(heroMatch2[1]);
+      result.heroHand = sortCardsByRank(parseCards(heroMatch2[1]));
     }
   }
   
@@ -122,7 +131,7 @@ export function parseHandHistory(text: string): ParsedHandHistory | null {
   const showdownMatches1 = Array.from(text.matchAll(/([^\n:]+): (?:shows?|showed?) \[([^\]]+)\]/gi));
   for (const match of showdownMatches1) {
     const playerName = match[1].trim();
-    const hand = parseCards(match[2]);
+    const hand = sortCardsByRank(parseCards(match[2]));
     if (hand.length === 5 && playerName.toLowerCase() !== 'hero') {
       result.players.push({ name: playerName, hand, isHero: false });
     }
@@ -132,7 +141,7 @@ export function parseHandHistory(text: string): ParsedHandHistory | null {
   const showdownMatches2 = Array.from(text.matchAll(/^(\w+) shows:\s*([^\n]+)/gim));
   for (const match of showdownMatches2) {
     const playerName = match[1].trim();
-    const hand = parseCards(match[2]);
+    const hand = sortCardsByRank(parseCards(match[2]));
     if (hand.length === 5 && playerName.toLowerCase() !== 'hero') {
       // Check if this player is already added
       const exists = result.players.some(p => p.name === playerName);
