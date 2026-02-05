@@ -252,7 +252,8 @@ export function TableEvAnalyzer() {
                 value={rakeback}
                 onChange={(e) => {
                   const val = e.target.value.replace(/[^0-9]/g, '');
-                  setRakeback(val === '' ? 0 : parseInt(val, 10));
+                  const num = val === '' ? 0 : parseInt(val, 10);
+                  setRakeback(Math.min(9999, num));
                 }}
                 onFocus={(e) => e.target.select()}
                 className="w-16 h-7 text-sm font-mono text-right"
