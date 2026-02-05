@@ -54,6 +54,10 @@ export const {
   getDeckLen,
   getWins,
   getTies,
+  debugGetBinomial,
+  debugGetHandRank,
+  debugEval5,
+  debugGetIdx,
   calculateExhaustiveRange,
   getMaxC0,
 } = await (async url => instantiate(

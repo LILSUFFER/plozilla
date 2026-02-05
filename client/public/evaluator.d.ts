@@ -97,6 +97,39 @@ export declare function getWins(playerIdx: number): number;
  */
 export declare function getTies(playerIdx: number): number;
 /**
+ * assembly/index/debugGetBinomial
+ * @param n `i32`
+ * @param k `i32`
+ * @returns `i32`
+ */
+export declare function debugGetBinomial(n: number, k: number): number;
+/**
+ * assembly/index/debugGetHandRank
+ * @param idx `i32`
+ * @returns `i32`
+ */
+export declare function debugGetHandRank(idx: number): number;
+/**
+ * assembly/index/debugEval5
+ * @param c0 `i32`
+ * @param c1 `i32`
+ * @param c2 `i32`
+ * @param c3 `i32`
+ * @param c4 `i32`
+ * @returns `i32`
+ */
+export declare function debugEval5(c0: number, c1: number, c2: number, c3: number, c4: number): number;
+/**
+ * assembly/index/debugGetIdx
+ * @param c0 `i32`
+ * @param c1 `i32`
+ * @param c2 `i32`
+ * @param c3 `i32`
+ * @param c4 `i32`
+ * @returns `i32`
+ */
+export declare function debugGetIdx(c0: number, c1: number, c2: number, c3: number, c4: number): number;
+/**
  * assembly/index/calculateExhaustiveRange
  * @param startC0 `i32`
  * @param endC0 `i32`

@@ -119,6 +119,30 @@ function calculateWithWasm(
   // Build deck
   wasm.buildDeck(usedLow, usedHigh);
   
+  // Debug: Check if lookup table is properly loaded
+  if (wasm.isTableLoaded && !wasm.isTableLoaded()) {
+    console.error('WARNING: Lookup table not loaded!');
+  }
+  
+  // Debug: Test specific hand evaluation
+  // Player 2's trip kings: Kh(46) + Kc(44) + 8c(24) + Ks(47) + 6d(17)
+  if (wasm.debugEval5) {
+    const testScore = wasm.debugEval5(44, 46, 24, 47, 17);
+    const testIdx = wasm.debugGetIdx(44, 46, 24, 47, 17);
+    console.log(`Debug WASM: eval5(44,46,24,47,17) = ${testScore.toString(16)}, idx = ${testIdx}`);
+    
+    // Debug binomial values - sorted cards are [17, 24, 44, 46, 47]
+    // Expected: C(17,1)=17, C(24,2)=276, C(44,3)=13244, C(46,4)=163185, C(47,5)=1533939
+    const b17_1 = wasm.debugGetBinomial(17, 1);
+    const b24_2 = wasm.debugGetBinomial(24, 2);
+    const b44_3 = wasm.debugGetBinomial(44, 3);
+    const b46_4 = wasm.debugGetBinomial(46, 4);
+    const b47_5 = wasm.debugGetBinomial(47, 5);
+    console.log(`Debug binomials: C(17,1)=${b17_1}, C(24,2)=${b24_2}, C(44,3)=${b44_3}, C(46,4)=${b46_4}, C(47,5)=${b47_5}`);
+    console.log(`Expected: C(17,1)=17, C(24,2)=276, C(44,3)=13244, C(46,4)=163185, C(47,5)=1533939`);
+    console.log(`WASM sum: ${b17_1 + b24_2 + b44_3 + b46_4 + b47_5}, Expected sum: 1710661`);
+  }
+  
   // Always use exhaustive enumeration like ProPokerTools
   const actualTrials = wasm.calculateExhaustive();
   const isExhaustive = true;

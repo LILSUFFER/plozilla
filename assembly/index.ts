@@ -247,6 +247,12 @@ export function getDeckLen(): i32 { return deckLen; }
 export function getWins(playerIdx: i32): i32 { return unchecked(wins[playerIdx]); }
 export function getTies(playerIdx: i32): i32 { return unchecked(ties[playerIdx]); }
 
+// Debug exports
+export function debugGetBinomial(n: i32, k: i32): i32 { return unchecked(BINOMIAL[n * 6 + k]); }
+export function debugGetHandRank(idx: i32): i32 { return unchecked(HAND_RANKS[idx]); }
+export function debugEval5(c0: i32, c1: i32, c2: i32, c3: i32, c4: i32): i32 { return lookup(c0, c1, c2, c3, c4); }
+export function debugGetIdx(c0: i32, c1: i32, c2: i32, c3: i32, c4: i32): i32 { return getIdx(c0, c1, c2, c3, c4); }
+
 // Range-based enumeration for parallel processing
 // startC0/endC0 define range for first loop variable
 export function calculateExhaustiveRange(startC0: i32, endC0: i32): i32 {

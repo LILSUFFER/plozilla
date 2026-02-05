@@ -18,6 +18,10 @@ export interface WasmExports {
   setHandRank(index: number, rank: number): void;
   markTableLoaded(): void;
   isTableLoaded(): boolean;
+  debugGetBinomial(n: number, k: number): number;
+  debugGetHandRank(idx: number): number;
+  debugEval5(c0: number, c1: number, c2: number, c3: number, c4: number): number;
+  debugGetIdx(c0: number, c1: number, c2: number, c3: number, c4: number): number;
   memory: WebAssembly.Memory;
 }
 
