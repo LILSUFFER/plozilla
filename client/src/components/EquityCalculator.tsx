@@ -3,6 +3,7 @@ import { type Card, getSuitSymbol, getSuitColor, getRankDisplay } from '@/lib/po
 import { parseCardsConcat, type PlayerInput, type CalculationResult } from '@/lib/equity-calculator';
 import { calculateEquityFast } from '@/lib/wasm-equity';
 import { getCachedEquity, setCachedEquity, getMemoryCacheSize } from '@/lib/equity-cache';
+import { parseRange, getRandomHandFromRange } from '@/lib/range-parser';
 import { Card as UICard, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,7 +29,7 @@ function PlayerRow({ player, onInputChange, onRemove, equity, isWinner, disabled
     onInputChange(player.id, value);
   };
   
-  const hasError = player.input.length > 0 && player.cards.length === 0;
+  const hasError = player.input.length > 0 && player.cards.length === 0 && !player.isRange;
   const hasConflict = player.cards.some(c => {
     const key = `${c.rank}${c.suit}`;
     let count = 0;
@@ -52,7 +53,7 @@ function PlayerRow({ player, onInputChange, onRemove, equity, isWinner, disabled
         <Input
           value={player.input}
           onChange={(e) => handleChange(e.target.value)}
-          placeholder="6sKh7hKdAc"
+          placeholder="AA, AK$s, KK+"
           className={cn(
             'font-mono text-sm',
             hasError && 'border-destructive'
@@ -62,26 +63,34 @@ function PlayerRow({ player, onInputChange, onRemove, equity, isWinner, disabled
         />
       </div>
       
-      <div className="flex gap-0.5 min-w-[120px]">
-        {player.cards.slice(0, 5).map((card, i) => (
-          <div 
-            key={i} 
-            className={cn(
-              'w-6 h-8 flex flex-col items-center justify-center rounded text-[10px] font-bold border',
-              'bg-white dark:bg-gray-100',
-              getSuitColor(card.suit) === 'red' ? 'text-red-600' : 'text-gray-900'
-            )}
-          >
-            <span>{getRankDisplay(card.rank)}</span>
-            <span className="text-[8px]">{getSuitSymbol(card.suit)}</span>
-          </div>
-        ))}
-        {Array.from({ length: Math.max(0, 5 - player.cards.length) }).map((_, i) => (
-          <div 
-            key={`empty-${i}`}
-            className="w-6 h-8 rounded border border-dashed border-muted-foreground/30 bg-muted/30"
-          />
-        ))}
+      <div className="flex gap-0.5 min-w-[120px] items-center">
+        {player.isRange ? (
+          <Badge variant="secondary" className="text-xs" data-testid={`badge-combo-${player.id}`}>
+            {player.comboCount} combos
+          </Badge>
+        ) : (
+          <>
+            {player.cards.slice(0, 5).map((card, i) => (
+              <div 
+                key={i} 
+                className={cn(
+                  'w-6 h-8 flex flex-col items-center justify-center rounded text-[10px] font-bold border',
+                  'bg-white dark:bg-gray-100',
+                  getSuitColor(card.suit) === 'red' ? 'text-red-600' : 'text-gray-900'
+                )}
+              >
+                <span>{getRankDisplay(card.rank)}</span>
+                <span className="text-[8px]">{getSuitSymbol(card.suit)}</span>
+              </div>
+            ))}
+            {Array.from({ length: Math.max(0, 5 - player.cards.length) }).map((_, i) => (
+              <div 
+                key={`empty-${i}`}
+                className="w-6 h-8 rounded border border-dashed border-muted-foreground/30 bg-muted/30"
+              />
+            ))}
+          </>
+        )}
       </div>
       
       {equity !== undefined && (
@@ -144,11 +153,39 @@ export function EquityCalculator() {
   const handlePlayerInput = useCallback((id: number, input: string) => {
     setPlayers(prev => prev.map(p => {
       if (p.id !== id) return p;
+      
+      const rangeResult = parseRange(input);
+      
+      if (rangeResult.isSpecificHand && rangeResult.hands.length === 1) {
+        return {
+          ...p,
+          input,
+          cards: rangeResult.hands[0],
+          isRange: false,
+          rangeHands: undefined,
+          comboCount: 1
+        };
+      }
+      
+      if (rangeResult.isRange && rangeResult.hands.length > 0) {
+        return {
+          ...p,
+          input,
+          cards: rangeResult.hands[0],
+          isRange: true,
+          rangeHands: rangeResult.hands,
+          comboCount: rangeResult.comboCount
+        };
+      }
+      
       const parsed = parseCardsConcat(input);
       return {
         ...p,
         input,
-        cards: parsed && parsed.length <= 5 ? parsed : []
+        cards: parsed && parsed.length <= 5 ? parsed : [],
+        isRange: false,
+        rangeHands: undefined,
+        comboCount: parsed?.length ? 1 : 0
       };
     }));
   }, []);
@@ -176,7 +213,7 @@ export function EquityCalculator() {
   };
   
   const calculate = () => {
-    const validPlayers = players.filter(p => p.cards.length >= 2);
+    const validPlayers = players.filter(p => p.cards.length >= 2 || (p.isRange && (p.comboCount || 0) > 0));
     if (validPlayers.length < 2) return;
     
     setIsCalculating(true);
@@ -184,8 +221,119 @@ export function EquityCalculator() {
     const start = performance.now();
     const isPreflop = board.length === 0;
     const is2Player = validPlayers.length === 2;
+    const hasRanges = validPlayers.some(p => p.isRange);
     
-    // Try cache for 2-player preflop
+    if (hasRanges) {
+      setTimeout(async () => {
+        const NUM_SAMPLES = 200;
+        const equityTotals: Record<number, number> = {};
+        let totalSamples = 0;
+        
+        for (const p of validPlayers) {
+          equityTotals[p.id] = 0;
+        }
+        
+        const usedByBoard = new Set(board.map(c => `${c.rank}${c.suit}`));
+        const allRanks = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'];
+        const allSuits = ['s', 'h', 'd', 'c'];
+        const fullDeck: Card[] = [];
+        for (const r of allRanks) {
+          for (const s of allSuits) {
+            fullDeck.push({ rank: r, suit: s } as Card);
+          }
+        }
+        
+        const generateRandomBoard = (usedCards: Set<string>): Card[] => {
+          const boardCards: Card[] = [...board];
+          while (boardCards.length < 5) {
+            const available = fullDeck.filter(c => !usedCards.has(`${c.rank}${c.suit}`));
+            if (available.length === 0) return [];
+            const randomCard = available[Math.floor(Math.random() * available.length)];
+            boardCards.push(randomCard);
+            usedCards.add(`${randomCard.rank}${randomCard.suit}`);
+          }
+          return boardCards;
+        };
+        
+        for (let sample = 0; sample < NUM_SAMPLES; sample++) {
+          const usedCards = new Set(usedByBoard);
+          let validSample = true;
+          const sampledHands: Card[][] = [];
+          
+          for (const p of validPlayers) {
+            let baseHand: Card[];
+            
+            if (p.isRange && p.rangeHands) {
+              const hand = getRandomHandFromRange(p.rangeHands, usedCards);
+              if (!hand) {
+                validSample = false;
+                break;
+              }
+              baseHand = [...hand];
+            } else {
+              if (p.cards.some(c => usedCards.has(`${c.rank}${c.suit}`))) {
+                validSample = false;
+                break;
+              }
+              baseHand = [...p.cards];
+            }
+            
+            for (const c of baseHand) usedCards.add(`${c.rank}${c.suit}`);
+            
+            while (baseHand.length < 5) {
+              const available = fullDeck.filter(c => !usedCards.has(`${c.rank}${c.suit}`));
+              if (available.length === 0) {
+                validSample = false;
+                break;
+              }
+              const randomCard = available[Math.floor(Math.random() * available.length)];
+              baseHand.push(randomCard);
+              usedCards.add(`${randomCard.rank}${randomCard.suit}`);
+            }
+            
+            if (!validSample) break;
+            sampledHands.push(baseHand);
+          }
+          
+          if (!validSample || sampledHands.length !== validPlayers.length) continue;
+          
+          const randomBoard = board.length === 5 ? board : generateRandomBoard(usedCards);
+          if (randomBoard.length < 5) continue;
+          
+          const sampledPlayers: PlayerInput[] = validPlayers.map((p, i) => ({
+            ...p, cards: sampledHands[i], isRange: false
+          }));
+          
+          const sampleResult = calculateEquityFast(sampledPlayers, randomBoard);
+          for (const r of sampleResult.results) {
+            equityTotals[r.playerId] += r.equity;
+          }
+          totalSamples++;
+        }
+        
+        const elapsed = performance.now() - start;
+        console.log(`Range calc: ${elapsed.toFixed(0)}ms for ${totalSamples} samples`);
+        setCalcTime(elapsed);
+        setIsCached(false);
+        
+        if (totalSamples > 0) {
+          setResult({
+            results: validPlayers.map(p => ({
+              playerId: p.id,
+              wins: 0,
+              ties: 0,
+              total: totalSamples,
+              equity: equityTotals[p.id] / totalSamples
+            })),
+            totalTrials: totalSamples,
+            isExhaustive: false
+          });
+        }
+        setIsCalculating(false);
+      }, 10);
+      return;
+    }
+    
     if (isPreflop && is2Player) {
       getCachedEquity(validPlayers[0].cards, validPlayers[1].cards).then(cached => {
         if (cached) {
@@ -203,7 +351,6 @@ export function EquityCalculator() {
           });
           setIsCalculating(false);
         } else {
-          // Calculate and cache
           setTimeout(() => {
             const calcResult = calculateEquityFast(players, board);
             const elapsed = performance.now() - start;
@@ -213,7 +360,6 @@ export function EquityCalculator() {
             setResult(calcResult);
             setIsCalculating(false);
             
-            // Cache the result
             if (calcResult.results.length === 2) {
               setCachedEquity(
                 validPlayers[0].cards,
@@ -227,7 +373,6 @@ export function EquityCalculator() {
         }
       });
     } else {
-      // Non-cached calculation
       setIsCached(false);
       setTimeout(() => {
         const calcResult = calculateEquityFast(players, board);
@@ -240,7 +385,9 @@ export function EquityCalculator() {
     }
   };
   
-  const validPlayerCount = players.filter(p => p.cards.length >= 2 && p.cards.length <= 5).length;
+  const validPlayerCount = players.filter(p => 
+    (p.cards.length >= 2) || (p.isRange && (p.comboCount || 0) > 0)
+  ).length;
   const canCalculate = validPlayerCount >= 2 && !isCalculating && board.length <= 5;
   
   const maxEquity = result ? Math.max(...result.results.map(r => r.equity)) : 0;
@@ -253,7 +400,7 @@ export function EquityCalculator() {
           5-Card Omaha Equity Calculator
         </CardTitle>
         <CardDescription>
-          Enter board cards and player hands to calculate equity. Format: 7s6hJdQc8c
+          Enter hands (7s6hJdQc8c) or ranges (AA, KK+, AK$s). Ranges use Monte Carlo sampling.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">

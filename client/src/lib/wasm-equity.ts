@@ -6,6 +6,9 @@ export interface PlayerInput {
   id: number;
   cards: Card[];
   input: string;
+  isRange?: boolean;
+  rangeHands?: Card[][];
+  comboCount?: number;
 }
 
 export interface EquityResult {
