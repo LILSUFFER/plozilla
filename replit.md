@@ -1,8 +1,13 @@
-# Poker Hand Evaluator
+# Poker Tools - 5-Card Omaha Equity Calculator
 
 ## Overview
 
-A browser-based 5-card poker hand evaluator that provides exact mathematical rankings for all 2,598,960 possible poker hands. The application allows users to evaluate individual hands, compare hands against each other, and calculate equity between multiple players. Built as a full-stack TypeScript application with a React frontend and Express backend.
+A browser-based 5-Card Omaha equity calculator similar to ProPokerTools Oracle. The calculator supports board input (0-5 cards), multiple player hands (5 cards each), concatenated card notation (e.g., "7s6hJdQc8c"), and performs exhaustive equity calculations with accurate Omaha hand evaluation (exactly 2 hole cards + 3 board cards). Built as a client-side React TypeScript application.
+
+## Recent Changes (Feb 2026)
+- Fixed parseCardsConcat to correctly handle "10" notation (10h = Ten of hearts)
+- Added resetKey approach for proper Clear button functionality
+- Improved player hand validation (2-5 cards per player)
 
 ## User Preferences
 
