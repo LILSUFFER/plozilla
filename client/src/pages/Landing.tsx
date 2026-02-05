@@ -53,6 +53,11 @@ export default function Landing() {
                       Sign in with Google
                     </a>
                   </Button>
+                  <Button size="lg" variant="outline" asChild data-testid="button-replit-signin">
+                    <a href="/api/login">
+                      Replit Auth (Dev)
+                    </a>
+                  </Button>
                 </div>
                 <div className="flex flex-wrap gap-4 text-sm text-muted-foreground pt-2">
                   <span className="flex items-center gap-1">
