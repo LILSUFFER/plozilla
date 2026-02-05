@@ -182,7 +182,7 @@ export function eval5(c0: i32, c1: i32, c2: i32, c3: i32, c4: i32): i32 {
   else if (r2 === 9) cnt9++; else if (r2 === 10) cnt10++; else if (r2 === 11) cnt11++;
   else cnt12++;
   
-  if (r3 === 0) cnt0++; else if (r3 === 1) cnt1++; else if (r3 === 2) cnt3++;
+  if (r3 === 0) cnt0++; else if (r3 === 1) cnt1++; else if (r3 === 2) cnt2++;
   else if (r3 === 3) cnt3++; else if (r3 === 4) cnt4++; else if (r3 === 5) cnt5++;
   else if (r3 === 6) cnt6++; else if (r3 === 7) cnt7++; else if (r3 === 8) cnt8++;
   else if (r3 === 9) cnt9++; else if (r3 === 10) cnt10++; else if (r3 === 11) cnt11++;

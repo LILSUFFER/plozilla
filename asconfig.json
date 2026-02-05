@@ -2,15 +2,14 @@
   "entries": ["assembly/index.ts"],
   "targets": {
     "release": {
-      "outFile": "public/evaluator.wasm",
-      "textFile": "public/evaluator.wat",
+      "outFile": "client/public/evaluator.wasm",
       "optimize": true,
       "shrinkLevel": 0,
       "converge": true,
       "noAssert": true
     },
     "debug": {
-      "outFile": "public/evaluator.debug.wasm",
+      "outFile": "client/public/evaluator.debug.wasm",
       "debug": true
     }
   },
