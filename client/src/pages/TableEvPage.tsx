@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { EquityCalculator } from '@/components/EquityCalculator';
+import { TableEvAnalyzer } from '@/components/TableEvAnalyzer';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { TrendingUp, DollarSign, BookOpen, LogOut, Loader2 } from 'lucide-react';
@@ -8,7 +8,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
 import { Link, useLocation } from 'wouter';
 
-export default function AppPage() {
+export default function TableEvPage() {
   const { user, isLoading, isAuthenticated, logout } = useAuth();
   const { toast } = useToast();
   const [location] = useLocation();
@@ -79,7 +79,7 @@ export default function AppPage() {
       </header>
       
       <main className="container mx-auto px-4 py-6 flex-1">
-        <EquityCalculator />
+        <TableEvAnalyzer />
       </main>
       
       <footer className="border-t bg-card sticky bottom-0 z-50">
