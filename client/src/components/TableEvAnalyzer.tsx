@@ -19,17 +19,17 @@ interface SeatConfig {
 }
 
 const FISH_VPIP_PRESETS = [
-  { label: '50%', value: '50', rake: 18, loserate: 50 },
-  { label: '55%', value: '55', rake: 19, loserate: 55 },
-  { label: '60%', value: '60', rake: 19, loserate: 60 },
-  { label: '65%', value: '65', rake: 21, loserate: 80 },
-  { label: '70%', value: '70', rake: 23, loserate: 95 },
-  { label: '75%', value: '75', rake: 27, loserate: 110 },
-  { label: '80%', value: '80', rake: 31, loserate: 130 },
-  { label: '85%', value: '85', rake: 35, loserate: 160 },
-  { label: '90%', value: '90', rake: 42, loserate: 200 },
-  { label: '95%', value: '95', rake: 47, loserate: 240 },
-  { label: '100%', value: '100', rake: 51, loserate: 280 },
+  { label: '50%', value: '50', rake: 17, loserate: 35 },
+  { label: '55%', value: '55', rake: 18, loserate: 45 },
+  { label: '60%', value: '60', rake: 19, loserate: 45 },
+  { label: '65%', value: '65', rake: 21, loserate: 60 },
+  { label: '70%', value: '70', rake: 23, loserate: 70 },
+  { label: '75%', value: '75', rake: 26, loserate: 100 },
+  { label: '80%', value: '80', rake: 30, loserate: 130 },
+  { label: '85%', value: '85', rake: 34, loserate: 160 },
+  { label: '90%', value: '90', rake: 41, loserate: 200 },
+  { label: '95%', value: '95', rake: 45, loserate: 240 },
+  { label: '100%', value: '100', rake: 48, loserate: 280 },
 ];
 
 const FISH_INDEX = 3;
