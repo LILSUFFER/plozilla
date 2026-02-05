@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { type Card, getSuitSymbol, getSuitColor, getRankDisplay } from '@/lib/poker-evaluator';
-import { parseCardsConcat, cardsToConcat, calculateEquityAsync, type PlayerInput, type CalculationResult } from '@/lib/equity-calculator';
+import { parseCardsConcat, type PlayerInput, type CalculationResult } from '@/lib/equity-calculator';
+import { calculateEquityFast } from '@/lib/wasm-equity';
 import { Card as UICard, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -171,24 +172,21 @@ export function EquityCalculator() {
     setResetKey(k => k + 1);
   };
   
-  const calculate = async () => {
+  const calculate = () => {
     const validPlayers = players.filter(p => p.cards.length >= 2);
     if (validPlayers.length < 2) return;
     
     setIsCalculating(true);
-    setProgress(0);
     
-    try {
-      const calcResult = await calculateEquityAsync(
-        players,
-        board,
-        (p) => setProgress(p * 100)
-      );
+    // Use requestAnimationFrame to allow UI to update before heavy calc
+    requestAnimationFrame(() => {
+      const start = performance.now();
+      const calcResult = calculateEquityFast(players, board);
+      const elapsed = performance.now() - start;
+      console.log(`Equity calculation: ${elapsed.toFixed(0)}ms for ${calcResult.totalTrials} trials`);
       setResult(calcResult);
-    } finally {
       setIsCalculating(false);
-      setProgress(100);
-    }
+    });
   };
   
   const validPlayerCount = players.filter(p => p.cards.length >= 2 && p.cards.length <= 5).length;
@@ -314,7 +312,7 @@ export function EquityCalculator() {
             <div className="flex items-center justify-between">
               <h3 className="font-semibold">Equity Results</h3>
               <Badge variant="secondary">
-                {result.totalTrials.toLocaleString()} trials (exhaustive)
+                {result.totalTrials.toLocaleString()} trials (Monte Carlo)
               </Badge>
             </div>
             
