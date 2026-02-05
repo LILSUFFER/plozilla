@@ -255,76 +255,40 @@ function rankName(value: number): string {
 }
 
 function calculateHandRank(category: HandCategory, kickers: number[]): number {
-  let rank = 0;
-  let offset = 0;
+  const BASE = 1000000;
   
-  const categories: HandCategory[] = [
-    'High Card', 'One Pair', 'Two Pair', 'Three of a Kind',
-    'Straight', 'Flush', 'Full House', 'Four of a Kind',
-    'Straight Flush', 'Royal Flush'
-  ];
-  
-  for (const cat of categories) {
-    if (cat === category) break;
-    offset += HAND_COUNTS[cat];
-  }
+  const kickerValue = (ks: number[]) => {
+    let v = 0;
+    for (let i = 0; i < ks.length && i < 5; i++) {
+      v += ks[i] * Math.pow(15, 4 - i);
+    }
+    return v;
+  };
   
   switch (category) {
     case 'Royal Flush':
-      rank = offset + 1;
-      break;
-      
+      return 9 * BASE + kickers[0];
     case 'Straight Flush':
-      rank = offset + (kickers[0] - 5);
-      break;
-      
-    case 'Four of a Kind': {
-      const quadRankIndex = kickers[0] - 2;
-      const kickerIndex = kickers[1] - 2;
-      const adjustedKicker = kickerIndex >= quadRankIndex ? kickerIndex - 1 : kickerIndex;
-      rank = offset + quadRankIndex * 12 + adjustedKicker + 1;
-      break;
-    }
-      
-    case 'Full House': {
-      const tripsIndex = kickers[0] - 2;
-      const pairIndex = kickers[1] - 2;
-      const adjustedPair = pairIndex >= tripsIndex ? pairIndex - 1 : pairIndex;
-      rank = offset + tripsIndex * 12 + adjustedPair + 1;
-      break;
-    }
-      
-    case 'Flush': {
-      rank = offset + calculateFlushRank(kickers) + 1;
-      break;
-    }
-      
+      return 8 * BASE + kickers[0];
+    case 'Four of a Kind':
+      return 7 * BASE + kickers[0] * 15 + kickers[1];
+    case 'Full House':
+      return 6 * BASE + kickers[0] * 15 + kickers[1];
+    case 'Flush':
+      return 5 * BASE + kickerValue(kickers);
     case 'Straight':
-      rank = offset + (kickers[0] - 5) + 1;
-      break;
-      
-    case 'Three of a Kind': {
-      rank = offset + calculateTripsRank(kickers) + 1;
-      break;
-    }
-      
-    case 'Two Pair': {
-      rank = offset + calculateTwoPairRank(kickers) + 1;
-      break;
-    }
-      
-    case 'One Pair': {
-      rank = offset + calculateOnePairRank(kickers) + 1;
-      break;
-    }
-      
-    case 'High Card': {
-      rank = offset + calculateHighCardRank(kickers) + 1;
-      break;
-    }
+      return 4 * BASE + kickers[0];
+    case 'Three of a Kind':
+      return 3 * BASE + kickers[0] * 225 + kickers[1] * 15 + kickers[2];
+    case 'Two Pair':
+      return 2 * BASE + kickers[0] * 225 + kickers[1] * 15 + kickers[2];
+    case 'One Pair':
+      return 1 * BASE + kickers[0] * 3375 + kickers[1] * 225 + kickers[2] * 15 + kickers[3];
+    case 'High Card':
+      return 0 * BASE + kickerValue(kickers);
+    default:
+      return 0;
   }
-  
-  return rank;
 }
 
 function calculateFlushRank(kickers: number[]): number {
