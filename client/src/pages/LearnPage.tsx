@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { TrendingUp, DollarSign, BookOpen, LogOut, Loader2 } from 'lucide-react';
+import { TrendingUp, DollarSign, BookOpen, LogOut, Loader2, MessageCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
 import { Link, useLocation } from 'wouter';
@@ -79,6 +79,11 @@ export default function LearnPage() {
           </nav>
           
           <div className="flex items-center gap-2">
+            <Button variant="ghost" size="icon" asChild data-testid="button-telegram">
+              <a href="https://t.me/plozilla_chat" target="_blank" rel="noopener noreferrer">
+                <MessageCircle className="w-4 h-4" />
+              </a>
+            </Button>
             <ThemeToggle />
             <Avatar className="w-8 h-8">
               <AvatarImage src={user?.profileImageUrl || undefined} alt={user?.firstName || 'User'} />
