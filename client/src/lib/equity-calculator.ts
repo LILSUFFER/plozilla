@@ -61,7 +61,7 @@ function combinations<T>(arr: T[], k: number): T[][] {
   return result;
 }
 
-export function evaluateOmahaHand(holeCards: Card[], boardCards: Card[]): HandResult | null {
+export function evaluateOmahaHand(holeCards: Card[], boardCards: Card[], debug = false): HandResult | null {
   if (holeCards.length < 2 || boardCards.length < 3) return null;
   
   const holeCombs = combinations(holeCards, 2);
@@ -74,6 +74,9 @@ export function evaluateOmahaHand(holeCards: Card[], boardCards: Card[]): HandRe
       const hand = [...hole2, ...board3];
       try {
         const result = evaluateHand(hand);
+        if (debug) {
+          console.log(`Hand: ${hand.map(c => c.rank + c.suit).join(' ')} => ${result.category} (rank: ${result.handRank})`);
+        }
         if (!bestResult || result.handRank > bestResult.handRank) {
           bestResult = result;
         }
@@ -81,6 +84,10 @@ export function evaluateOmahaHand(holeCards: Card[], boardCards: Card[]): HandRe
         continue;
       }
     }
+  }
+  
+  if (debug && bestResult) {
+    console.log(`Best: ${bestResult.category} (rank: ${bestResult.handRank})`);
   }
   
   return bestResult;
@@ -159,6 +166,9 @@ export function calculateEquity(
   const totalTrials = boardCompletions.length;
   let processed = 0;
   
+  const debugFirst = true;
+  let debugCount = 0;
+  
   for (const completion of boardCompletions) {
     const fullBoard = [...board, ...completion];
     
@@ -174,6 +184,15 @@ export function calculateEquity(
     
     const bestRank = Math.max(...validResults.map(p => p.result!.handRank));
     const winners = validResults.filter(p => p.result!.handRank === bestRank);
+    
+    if (debugFirst && debugCount < 3) {
+      console.log(`Board: ${fullBoard.map(c => c.rank + c.suit).join(' ')}`);
+      for (const pr of playerResults) {
+        console.log(`  Player ${pr.playerId}: ${pr.result?.category} (rank: ${pr.result?.handRank})`);
+      }
+      console.log(`  Winner: Player ${winners.map(w => w.playerId).join(', ')}`);
+      debugCount++;
+    }
     
     for (const player of validPlayers) {
       const stats = results.get(player.id)!;
