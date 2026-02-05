@@ -235,7 +235,7 @@ export function TableEvAnalyzer() {
                 type="number" 
                 value={heroRake}
                 onChange={(e) => setHeroRake(Number(e.target.value))}
-                className="w-20 h-7 text-sm font-mono text-right"
+                className="w-16 h-7 text-sm font-mono text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                 data-testid="input-hero-rake"
               />
             </div>
@@ -246,7 +246,7 @@ export function TableEvAnalyzer() {
                 value={rakeback}
                 min={0}
                 onChange={(e) => setRakeback(Math.max(0, Number(e.target.value)))}
-                className="w-20 h-7 text-sm font-mono text-right"
+                className="w-16 h-7 text-sm font-mono text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                 data-testid="input-rakeback"
               />
             </div>
