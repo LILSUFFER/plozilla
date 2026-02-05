@@ -1,122 +1,86 @@
-# Poker Hand Evaluator
+# Poker Tools - 5-Card Omaha Equity Calculator
 
-A browser-based 5-card poker hand evaluator with exact mathematical rankings matching ProPokerTools Oracle behavior.
+A browser-based poker equity calculator for 5-card Omaha Hi with exact mathematical evaluation.
 
 ## Features
 
-- **Exact Hand Evaluation**: Pure JavaScript evaluator with no Monte Carlo simulation
-- **Complete Rankings**: Correctly ranks all 2,598,960 possible 5-card hands
-- **Hand Comparison**: Compare any two hands to determine the winner
-- **Multiple Input Methods**: Visual card picker or text notation (e.g., "Ah Ks Qd Jc Tc")
-- **Random Hand Generator**: Generate random hands for testing
+- **5-Card Omaha Equity Calculator**: Calculate equity percentages for multiple players
+- **Exhaustive Calculation**: Enumerates all possible remaining board cards
+- **Multiple Input Formats**: Concatenated (6sKh7hKdAc) or spaced (6s Kh 7h Kd Ac)
+- **Hand Evaluator**: Evaluate single 5-card poker hands
+- **Hand Comparison**: Compare two hands head-to-head
 - **Dark/Light Mode**: Toggle between themes
 - **Mobile Responsive**: Works on all device sizes
 
-## Hand Rankings
+## 5-Card Omaha Rules
 
-From best to worst:
+In 5-card Omaha:
+- Each player receives **5 hole cards**
+- Must use **exactly 2** hole cards
+- Must use **exactly 3** board cards
+- Makes the best possible 5-card poker hand
 
-| Rank | Hand | Count | Probability |
-|------|------|-------|-------------|
-| 1 | Royal Flush | 4 | 0.000154% |
-| 2 | Straight Flush | 36 | 0.00139% |
-| 3 | Four of a Kind | 624 | 0.0240% |
-| 4 | Full House | 3,744 | 0.1441% |
-| 5 | Flush | 5,108 | 0.1965% |
-| 6 | Straight | 10,200 | 0.3925% |
-| 7 | Three of a Kind | 54,912 | 2.1128% |
-| 8 | Two Pair | 123,552 | 4.7539% |
-| 9 | One Pair | 1,098,240 | 42.2569% |
-| 10 | High Card | 1,302,540 | 50.1177% |
+## Usage
 
-**Total: 2,598,960 hands** (52 choose 5)
+### Equity Calculator
 
-## Mathematical Accuracy
+1. Enter board cards (0-5): `Th5d7c` 
+2. Enter player hands (2+ cards each): `6sKh7hKdAc`
+3. Click "Calculate Equity"
+4. View results with win/tie percentages
 
-This evaluator uses exact combinatorial mathematics:
+### Card Notation
 
-### Hand Evaluation Algorithm
-
-1. **Category Detection**: Identify the hand category (Royal Flush, Straight Flush, etc.)
-2. **Kicker Analysis**: Extract relevant kicker cards for tiebreaking
-3. **Rank Calculation**: Compute exact rank among all 2,598,960 hands
-4. **Percentile**: Calculate what percentage of hands this hand beats
-
-### Ranking Logic
-
-Within each category, hands are ranked by:
-
-- **Straights/Flushes**: High card determines rank (Ace-high beats King-high)
-- **Four of a Kind**: Quad rank, then kicker
-- **Full House**: Trips rank, then pair rank
-- **Flush**: Lexicographic comparison of all 5 cards
-- **Three of a Kind**: Trips rank, then kickers
-- **Two Pair**: High pair, low pair, then kicker
-- **One Pair**: Pair rank, then kickers
-- **High Card**: Lexicographic comparison of all 5 cards
-
-### Special Cases
-
-- **Wheel Straight (A-2-3-4-5)**: Ace plays low, ranks below 6-high straight
-- **Ace-High Straight (A-K-Q-J-T)**: Ace plays high, highest straight
-
-## Card Notation
-
-- **Ranks**: 2, 3, 4, 5, 6, 7, 8, 9, T (10), J, Q, K, A
-- **Suits**: c (clubs ♣), d (diamonds ♦), h (hearts ♥), s (spades ♠)
+- **Ranks**: 2-9, T (10), J, Q, K, A
+- **Suits**: c (clubs), d (diamonds), h (hearts), s (spades)
 
 Examples:
-- `Ah` = Ace of Hearts
-- `Tc` = Ten of Clubs
-- `Ks` = King of Spades
+- `6sKh7hKdAc` = 6♠ K♥ 7♥ K♦ A♣
+- `Th5d7c` = 10♥ 5♦ 7♣
+- `10h5d7c` = Same as above (10 notation supported)
+
+## Hand Rankings
+
+| Rank | Hand | Count |
+|------|------|-------|
+| 1 | Royal Flush | 4 |
+| 2 | Straight Flush | 36 |
+| 3 | Four of a Kind | 624 |
+| 4 | Full House | 3,744 |
+| 5 | Flush | 5,108 |
+| 6 | Straight | 10,200 |
+| 7 | Three of a Kind | 54,912 |
+| 8 | Two Pair | 123,552 |
+| 9 | One Pair | 1,098,240 |
+| 10 | High Card | 1,302,540 |
+
+**Total: 2,598,960 possible 5-card hands**
 
 ## Tech Stack
 
-- **Frontend**: React + TypeScript
-- **Styling**: Tailwind CSS + shadcn/ui
+- **Frontend**: React + TypeScript + Tailwind CSS
+- **UI Components**: shadcn/ui
 - **Build**: Vite
 - **Poker Logic**: Pure JavaScript (no external libraries)
 
 ## Setup
 
 ```bash
-# Install dependencies
 npm install
-
-# Start development server
 npm run dev
 ```
 
-The app will be available at `http://localhost:5000`
+The app runs at `http://localhost:5000`
 
-## API
+## Equity Calculation
 
-The poker evaluator is available as a pure JavaScript module:
+The calculator uses exhaustive enumeration:
+1. Given player hands and partial board
+2. Enumerate all possible remaining board cards
+3. For each complete board, evaluate each player's best Omaha hand
+4. Count wins, ties, and calculate equity percentages
 
-```typescript
-import { 
-  parseHand, 
-  evaluateHand, 
-  compareHands, 
-  generateRandomHand 
-} from '@/lib/poker-evaluator';
-
-// Parse a hand from text
-const hand = parseHand('Ah Ks Qd Jc Tc');
-
-// Evaluate the hand
-const result = evaluateHand(hand);
-console.log(result.category);    // "Straight"
-console.log(result.handRank);    // Exact rank (1 = best)
-console.log(result.percentile);  // Percentage of hands beaten
-
-// Compare two hands
-const comparison = compareHands(hand1, hand2);
-// Returns: positive if hand1 wins, negative if hand2 wins, 0 if tie
-
-// Generate random hand
-const randomHand = generateRandomHand();
-```
+Equity = (Wins + Ties/2) / Total Trials × 100%
 
 ## License
 

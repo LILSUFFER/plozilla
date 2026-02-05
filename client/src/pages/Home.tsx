@@ -5,13 +5,14 @@ import { HandComparison } from '@/components/HandComparison';
 import { InlineCardPicker } from '@/components/CardPicker';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { PlayingCard } from '@/components/PlayingCard';
+import { EquityCalculator } from '@/components/EquityCalculator';
 import { Card as UICard, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { Shuffle, X, Calculator, Swords, BookOpen, Spade } from 'lucide-react';
+import { Shuffle, X, Calculator, Swords, BookOpen, Spade, TrendingUp } from 'lucide-react';
 
 export default function Home() {
   const [selectedCards, setSelectedCards] = useState<Card[]>([]);
@@ -62,8 +63,8 @@ export default function Home() {
               <Spade className="w-6 h-6 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="text-xl font-bold">Poker Hand Evaluator</h1>
-              <p className="text-xs text-muted-foreground hidden sm:block">5-Card Poker Mathematics</p>
+              <h1 className="text-xl font-bold">Poker Tools</h1>
+              <p className="text-xs text-muted-foreground hidden sm:block">Equity Calculator & Hand Evaluator</p>
             </div>
           </div>
           <ThemeToggle />
@@ -71,8 +72,12 @@ export default function Home() {
       </header>
       
       <main className="container mx-auto px-4 py-6 space-y-6">
-        <Tabs defaultValue="evaluate" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3 max-w-md mx-auto">
+        <Tabs defaultValue="equity" className="space-y-6">
+          <TabsList className="grid w-full grid-cols-4 max-w-lg mx-auto">
+            <TabsTrigger value="equity" className="flex items-center gap-2" data-testid="tab-equity">
+              <TrendingUp className="w-4 h-4" />
+              <span className="hidden sm:inline">Equity</span>
+            </TabsTrigger>
             <TabsTrigger value="evaluate" className="flex items-center gap-2" data-testid="tab-evaluate">
               <Calculator className="w-4 h-4" />
               <span className="hidden sm:inline">Evaluate</span>
@@ -86,6 +91,10 @@ export default function Home() {
               <span className="hidden sm:inline">Learn</span>
             </TabsTrigger>
           </TabsList>
+          
+          <TabsContent value="equity" className="space-y-6">
+            <EquityCalculator />
+          </TabsContent>
           
           <TabsContent value="evaluate" className="space-y-6">
             <div className="grid lg:grid-cols-2 gap-6">
@@ -229,29 +238,52 @@ export default function Home() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <BookOpen className="w-5 h-5" />
-                  Poker Hand Rankings
+                  Poker Hand Rankings & Omaha Rules
                 </CardTitle>
                 <CardDescription>
-                  Understanding the mathematics behind 5-card poker
+                  Understanding poker mathematics and 5-card Omaha
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <Accordion type="single" collapsible className="w-full">
+                  <AccordionItem value="omaha">
+                    <AccordionTrigger>5-Card Omaha Rules</AccordionTrigger>
+                    <AccordionContent className="space-y-4">
+                      <p>
+                        In 5-card Omaha, each player receives <strong>5 hole cards</strong> and must use 
+                        <strong> exactly 2</strong> of them combined with <strong>exactly 3</strong> of the 
+                        5 community board cards to make the best 5-card poker hand.
+                      </p>
+                      <p>
+                        This is different from Texas Hold'em where you can use any combination of your 
+                        hole cards and board cards.
+                      </p>
+                      <div className="bg-muted/50 p-3 rounded-md">
+                        <p className="font-semibold mb-2">Example:</p>
+                        <p className="text-sm">
+                          If you have <code className="bg-background px-1 rounded">AhKhQhJhTh</code> (all hearts), 
+                          you cannot make a flush unless 3 hearts appear on the board, because you must use 
+                          exactly 2 hole cards and 3 board cards.
+                        </p>
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                  
                   <AccordionItem value="rankings">
                     <AccordionTrigger>Hand Rankings (Best to Worst)</AccordionTrigger>
                     <AccordionContent>
                       <div className="space-y-3">
                         {[
-                          { name: 'Royal Flush', count: 4, desc: 'A, K, Q, J, 10 all of the same suit', example: 'Ah Kh Qh Jh Th' },
-                          { name: 'Straight Flush', count: 36, desc: 'Five cards in sequence, all of the same suit', example: '9h 8h 7h 6h 5h' },
-                          { name: 'Four of a Kind', count: 624, desc: 'Four cards of the same rank', example: 'Ah Ac Ad As Kh' },
-                          { name: 'Full House', count: 3744, desc: 'Three of a kind plus a pair', example: 'Ah Ac Ad Kh Ks' },
-                          { name: 'Flush', count: 5108, desc: 'Five cards of the same suit (not in sequence)', example: 'Ah Jh 8h 5h 2h' },
-                          { name: 'Straight', count: 10200, desc: 'Five cards in sequence (not same suit)', example: 'Ah Kd Qc Js Th' },
-                          { name: 'Three of a Kind', count: 54912, desc: 'Three cards of the same rank', example: 'Ah Ac Ad Kh Qs' },
-                          { name: 'Two Pair', count: 123552, desc: 'Two different pairs', example: 'Ah Ac Kh Ks Qd' },
-                          { name: 'One Pair', count: 1098240, desc: 'Two cards of the same rank', example: 'Ah Ac Kh Qs Jd' },
-                          { name: 'High Card', count: 1302540, desc: 'No matching cards', example: 'Ah Kd Qc Js 9h' },
+                          { name: 'Royal Flush', count: 4, desc: 'A, K, Q, J, 10 all of the same suit', example: 'AhKhQhJhTh' },
+                          { name: 'Straight Flush', count: 36, desc: 'Five cards in sequence, all of the same suit', example: '9h8h7h6h5h' },
+                          { name: 'Four of a Kind', count: 624, desc: 'Four cards of the same rank', example: 'AhAcAdAsKh' },
+                          { name: 'Full House', count: 3744, desc: 'Three of a kind plus a pair', example: 'AhAcAdKhKs' },
+                          { name: 'Flush', count: 5108, desc: 'Five cards of the same suit (not in sequence)', example: 'AhJh8h5h2h' },
+                          { name: 'Straight', count: 10200, desc: 'Five cards in sequence (not same suit)', example: 'AhKdQcJsTh' },
+                          { name: 'Three of a Kind', count: 54912, desc: 'Three cards of the same rank', example: 'AhAcAdKhQs' },
+                          { name: 'Two Pair', count: 123552, desc: 'Two different pairs', example: 'AhAcKhKsQd' },
+                          { name: 'One Pair', count: 1098240, desc: 'Two cards of the same rank', example: 'AhAcKhQsJd' },
+                          { name: 'High Card', count: 1302540, desc: 'No matching cards', example: 'AhKdQcJs9h' },
                         ].map((hand, i) => (
                           <div key={hand.name} className="flex flex-col sm:flex-row sm:items-center gap-2 p-3 rounded-md bg-muted/50">
                             <div className="flex items-center gap-2">
@@ -262,45 +294,32 @@ export default function Home() {
                             </div>
                             <span className="text-sm text-muted-foreground flex-1">{hand.desc}</span>
                             <code className="text-xs bg-background px-2 py-1 rounded font-mono">{hand.example}</code>
-                            <span className="text-xs text-muted-foreground">{hand.count.toLocaleString()} hands</span>
                           </div>
                         ))}
                       </div>
                     </AccordionContent>
                   </AccordionItem>
                   
-                  <AccordionItem value="math">
-                    <AccordionTrigger>The Mathematics</AccordionTrigger>
+                  <AccordionItem value="equity">
+                    <AccordionTrigger>Understanding Equity</AccordionTrigger>
                     <AccordionContent className="space-y-4">
                       <p>
-                        There are exactly <strong>2,598,960</strong> possible 5-card hands in a standard 52-card deck.
-                        This is calculated as "52 choose 5" = 52! / (5! × 47!) = 2,598,960.
+                        <strong>Equity</strong> represents your expected share of the pot based on 
+                        your probability of winning. It's calculated by simulating all possible 
+                        remaining board cards and determining how often each player wins.
                       </p>
                       <p>
-                        Each hand is ranked based on its category (Royal Flush being the best, High Card being the worst)
-                        and then by the specific cards within that category. This evaluator correctly ranks all hands
-                        using exact mathematics, not Monte Carlo simulation.
+                        For example, if you have 60% equity, you expect to win 60% of the pot on average.
                       </p>
-                      <p>
-                        The percentile shows what percentage of all possible hands your hand beats.
-                        A Royal Flush beats 99.9998% of hands, while the worst High Card beats 0.00004% of hands.
-                      </p>
-                    </AccordionContent>
-                  </AccordionItem>
-                  
-                  <AccordionItem value="kickers">
-                    <AccordionTrigger>Understanding Kickers</AccordionTrigger>
-                    <AccordionContent className="space-y-4">
-                      <p>
-                        When two hands have the same category (e.g., both are One Pair), the winner is determined by:
-                      </p>
-                      <ol className="list-decimal list-inside space-y-2 ml-4">
-                        <li>The rank of the primary cards (e.g., pair of Aces beats pair of Kings)</li>
-                        <li>The "kickers" - the remaining cards that don't form the hand</li>
-                      </ol>
-                      <p>
-                        For example, Ah Ac Kh Qs 2d beats Ah Ac Kh Jd 3c because the Queen kicker beats the Jack.
-                      </p>
+                      <div className="bg-muted/50 p-3 rounded-md">
+                        <p className="font-semibold mb-2">Calculation Method:</p>
+                        <ul className="text-sm space-y-1 list-disc list-inside">
+                          <li>Enumerate all possible remaining board cards</li>
+                          <li>For each complete board, evaluate each player's best hand</li>
+                          <li>Count wins, ties, and losses for each player</li>
+                          <li>Equity = (Wins + Ties/2) / Total Trials × 100%</li>
+                        </ul>
+                      </div>
                     </AccordionContent>
                   </AccordionItem>
                   
@@ -308,7 +327,7 @@ export default function Home() {
                     <AccordionTrigger>Card Notation</AccordionTrigger>
                     <AccordionContent className="space-y-4">
                       <p>
-                        This evaluator uses standard poker notation:
+                        This tool uses standard poker notation in concatenated format:
                       </p>
                       <div className="grid grid-cols-2 gap-4 mt-2">
                         <div>
@@ -332,6 +351,13 @@ export default function Home() {
                           </ul>
                         </div>
                       </div>
+                      <div className="bg-muted/50 p-3 rounded-md mt-4">
+                        <p className="font-semibold mb-2">Examples:</p>
+                        <ul className="text-sm space-y-1">
+                          <li><code>6sKh7hKdAc</code> = 6♠ K♥ 7♥ K♦ A♣</li>
+                          <li><code>Th5d7c</code> = 10♥ 5♦ 7♣ (board)</li>
+                        </ul>
+                      </div>
                     </AccordionContent>
                   </AccordionItem>
                 </Accordion>
@@ -344,7 +370,7 @@ export default function Home() {
       <footer className="border-t mt-12">
         <div className="container mx-auto px-4 py-6 text-center text-sm text-muted-foreground">
           <p>
-            Poker Hand Evaluator - Exact mathematical evaluation of all 2,598,960 5-card poker hands
+            Poker Tools - 5-Card Omaha Equity Calculator & Hand Evaluator
           </p>
         </div>
       </footer>
