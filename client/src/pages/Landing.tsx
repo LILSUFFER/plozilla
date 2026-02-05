@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { Calculator, Zap, Target, TrendingUp } from "lucide-react";
+import { Calculator, Zap, Target, TrendingUp, ChevronRight } from "lucide-react";
 import { SiGoogle } from "react-icons/si";
 
 export default function Landing() {
