@@ -5,6 +5,12 @@
 A browser-based 5-Card Omaha equity calculator similar to ProPokerTools Oracle. The calculator supports board input in valid poker states (Preflop: 0, Flop: 3, Turn: 4, River: 5 cards), multiple player hands (5 cards each), concatenated card notation (e.g., "7s6hJdQc8c"), and performs exhaustive equity calculations with accurate Omaha hand evaluation (exactly 2 hole cards + 3 board cards). Built as a client-side React TypeScript application.
 
 ## Recent Changes (Feb 2026)
+- **SaaS Architecture**: Restructured as authenticated web application
+  - Landing page at / (public) with GTOWizard-style design
+  - Equity calculator at /app (requires authentication)
+  - Replit Auth integration (OIDC with Google, GitHub, email login)
+  - PostgreSQL session storage with user profiles
+  - User avatar and logout functionality in app header
 - **Board Validation**: Only valid poker states allowed (0, 3, 4, or 5 cards)
   - Preflop: 0 cards, Flop: 3 cards, Turn: 4 cards, River: 5 cards
   - Invalid states (1-2 cards) show error message and disable calculation
