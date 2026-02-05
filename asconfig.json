@@ -1,0 +1,20 @@
+{
+  "entries": ["assembly/index.ts"],
+  "targets": {
+    "release": {
+      "outFile": "public/evaluator.wasm",
+      "textFile": "public/evaluator.wat",
+      "optimize": true,
+      "shrinkLevel": 0,
+      "converge": true,
+      "noAssert": true
+    },
+    "debug": {
+      "outFile": "public/evaluator.debug.wasm",
+      "debug": true
+    }
+  },
+  "options": {
+    "bindings": "esm"
+  }
+}

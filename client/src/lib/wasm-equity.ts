@@ -1,5 +1,6 @@
-// WebAssembly-based fast equity calculator
+// WebAssembly-based ultra-fast equity calculator
 import type { Card } from './poker-evaluator';
+import { loadWasm, getWasm, type WasmExports } from './wasm-loader';
 
 export interface PlayerInput {
   id: number;
@@ -21,20 +22,121 @@ export interface CalculationResult {
   isExhaustive: boolean;
 }
 
-// Card encoding
+// Card encoding: rank (0-12) * 4 + suit (0-3) = 0-51
 const RC: Record<string, number> = {'2':0,'3':1,'4':2,'5':3,'6':4,'7':5,'8':6,'9':7,'T':8,'J':9,'Q':10,'K':11,'A':12};
 const SC: Record<string, number> = {'c':0,'d':1,'h':2,'s':3};
 
+const TRIALS = 430000;
+
+function encodeCard(card: Card): number {
+  return RC[card.rank] * 4 + SC[card.suit];
+}
+
+// Initialize WASM on module load
+let wasmReady = false;
+loadWasm().then(() => {
+  wasmReady = true;
+  console.log('WASM evaluator loaded');
+}).catch(err => {
+  console.error('Failed to load WASM:', err);
+});
+
+export async function calculateEquityWasm(
+  players: PlayerInput[],
+  board: Card[]
+): Promise<CalculationResult> {
+  const wasm = await loadWasm();
+  return calculateWithWasm(wasm, players, board);
+}
+
+export function calculateEquityFast(
+  players: PlayerInput[],
+  board: Card[]
+): CalculationResult {
+  const wasm = getWasm();
+  if (wasm) {
+    return calculateWithWasm(wasm, players, board);
+  }
+  // Fallback to JS implementation if WASM not ready
+  return calculateEquityJS(players, board);
+}
+
+function calculateWithWasm(
+  wasm: WasmExports,
+  players: PlayerInput[],
+  board: Card[]
+): CalculationResult {
+  const vp = players.filter(p => p.cards.length >= 2 && p.cards.length <= 5);
+  if (vp.length < 2) return { results: [], totalTrials: 0, isExhaustive: false };
+  
+  const np = vp.length;
+  
+  // Build used cards mask (two 32-bit integers for WASM)
+  let usedLow = 0;
+  let usedHigh = 0;
+  
+  // Set player hands
+  wasm.setNumPlayers(np);
+  for (let p = 0; p < np; p++) {
+    const hand = vp[p].cards;
+    wasm.setPlayerLen(p, hand.length);
+    for (let i = 0; i < hand.length; i++) {
+      const enc = encodeCard(hand[i]);
+      wasm.setPlayerHand(p, i, enc);
+      if (enc < 32) usedLow |= 1 << enc;
+      else usedHigh |= 1 << (enc - 32);
+    }
+  }
+  
+  // Set board
+  wasm.setBoardLen(board.length);
+  for (let i = 0; i < board.length; i++) {
+    const enc = encodeCard(board[i]);
+    wasm.setBoardCard(i, enc);
+    if (enc < 32) usedLow |= 1 << enc;
+    else usedHigh |= 1 << (enc - 32);
+  }
+  
+  // Build deck
+  const low = usedLow;
+  const high = usedHigh;
+  wasm.buildDeck(low, high);
+  
+  // Set random seed
+  wasm.setSeed(Date.now() | 0);
+  
+  // Run calculation
+  wasm.calculate(TRIALS);
+  
+  // Get results
+  const results: EquityResult[] = vp.map((p, i) => {
+    const wins = wasm.getWins(i);
+    const ties = wasm.getTies(i);
+    return {
+      playerId: p.id,
+      wins,
+      ties,
+      total: TRIALS,
+      equity: ((wins + ties / 2) / TRIALS) * 100
+    };
+  });
+  
+  return {
+    results,
+    totalTrials: TRIALS,
+    isExhaustive: false
+  };
+}
+
+// JavaScript fallback implementation
 const H2_0 = [0,0,0,0,1,1,1,2,2,3];
 const H2_1 = [1,2,3,4,2,3,4,3,4,4];
 const B3_0 = [0,0,0,0,0,0,1,1,1,2];
 const B3_1 = [1,1,1,2,2,3,2,2,3,3];
 const B3_2 = [2,3,4,3,4,4,3,4,4,4];
-
 const STRAIGHTS = [0x100F, 0x001F, 0x003E, 0x007C, 0x00F8, 0x01F0, 0x03E0, 0x07C0, 0x0F80, 0x1F00];
 
-// Ultra-fast inline evaluator
-function eval5(c0: number, c1: number, c2: number, c3: number, c4: number): number {
+function eval5JS(c0: number, c1: number, c2: number, c3: number, c4: number): number {
   const r0 = c0 >> 2, r1 = c1 >> 2, r2 = c2 >> 2, r3 = c3 >> 2, r4 = c4 >> 2;
   const s0 = c0 & 3, s1 = c1 & 3, s2 = c2 & 3, s3 = c3 & 3, s4 = c4 & 3;
   
@@ -74,27 +176,7 @@ function eval5(c0: number, c1: number, c2: number, c3: number, c4: number): numb
   return k1 * 28561 + k2 * 2197 + k3 * 169 + (p1 >= 0 ? p1 : 0) * 13 + (p2 >= 0 ? p2 : 0);
 }
 
-function evalPlayer(h: Uint8Array, hLen: number, b: Uint8Array): number {
-  let best = 0;
-  for (let hi = 0; hi < 10; hi++) {
-    const h0 = H2_0[hi], h1 = H2_1[hi];
-    if (h0 >= hLen || h1 >= hLen) continue;
-    for (let bi = 0; bi < 10; bi++) {
-      const sc = eval5(h[h0], h[h1], b[B3_0[bi]], b[B3_1[bi]], b[B3_2[bi]]);
-      if (sc > best) best = sc;
-    }
-  }
-  return best;
-}
-
-// Monte Carlo samples - matching ProPokerTools exhaustive count
-const FAST_SAMPLES = 430000;
-
-export function calculateEquityFast(
-  players: PlayerInput[],
-  board: Card[],
-  onProgress?: (progress: number) => void
-): CalculationResult {
+function calculateEquityJS(players: PlayerInput[], board: Card[]): CalculationResult {
   const vp = players.filter(p => p.cards.length >= 2 && p.cards.length <= 5);
   if (vp.length < 2) return { results: [], totalTrials: 0, isExhaustive: false };
   
@@ -106,7 +188,7 @@ export function calculateEquityFast(
   for (const p of vp) {
     const arr = new Uint8Array(p.cards.length);
     for (let i = 0; i < p.cards.length; i++) {
-      const enc = RC[p.cards[i].rank] * 4 + SC[p.cards[i].suit];
+      const enc = encodeCard(p.cards[i]);
       arr[i] = enc;
       used.add(enc);
     }
@@ -116,7 +198,7 @@ export function calculateEquityFast(
   
   const bc = new Uint8Array(board.length);
   for (let i = 0; i < board.length; i++) {
-    const enc = RC[board[i].rank] * 4 + SC[board[i].suit];
+    const enc = encodeCard(board[i]);
     bc[i] = enc;
     used.add(enc);
   }
@@ -134,7 +216,7 @@ export function calculateEquityFast(
   const fb = new Uint8Array(5);
   for (let i = 0; i < board.length; i++) fb[i] = bc[i];
   
-  for (let trial = 0; trial < FAST_SAMPLES; trial++) {
+  for (let trial = 0; trial < TRIALS; trial++) {
     for (let i = 0; i < cn; i++) {
       const j = i + ((Math.random() * (dl - i)) | 0);
       const t = deck[i]; deck[i] = deck[j]; deck[j] = t;
@@ -142,7 +224,18 @@ export function calculateEquityFast(
     }
     
     for (let p = 0; p < np; p++) {
-      scores[p] = evalPlayer(pc[p], pLen[p], fb);
+      const h = pc[p];
+      const hLen = pLen[p];
+      let best = 0;
+      for (let hi = 0; hi < 10; hi++) {
+        const h0 = H2_0[hi], h1 = H2_1[hi];
+        if (h0 >= hLen || h1 >= hLen) continue;
+        for (let bi = 0; bi < 10; bi++) {
+          const sc = eval5JS(h[h0], h[h1], fb[B3_0[bi]], fb[B3_1[bi]], fb[B3_2[bi]]);
+          if (sc > best) best = sc;
+        }
+      }
+      scores[p] = best;
     }
     
     let mx = 0;
@@ -162,10 +255,10 @@ export function calculateEquityFast(
       playerId: p.id,
       wins: wins[i],
       ties: ties[i],
-      total: FAST_SAMPLES,
-      equity: ((wins[i] + ties[i] / 2) / FAST_SAMPLES) * 100
+      total: TRIALS,
+      equity: ((wins[i] + ties[i] / 2) / TRIALS) * 100
     })),
-    totalTrials: FAST_SAMPLES,
+    totalTrials: TRIALS,
     isExhaustive: false
   };
 }
