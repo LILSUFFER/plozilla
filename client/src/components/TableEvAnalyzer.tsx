@@ -14,21 +14,18 @@ interface SeatConfig {
   seatIndex: number;
   type: PlayerType;
   fishVpip?: string;
-  realLooserate?: number;
+  fishRake?: number;
+  fishLoserate?: number;
 }
 
 const FISH_VPIP_PRESETS = [
-  { label: '50%', value: '50', realLooserate: 50 },
-  { label: '55%', value: '55', realLooserate: 59 },
-  { label: '60%', value: '60', realLooserate: 70 },
-  { label: '65%', value: '65', realLooserate: 82 },
-  { label: '70%', value: '70', realLooserate: 92 },
-  { label: '75%', value: '75', realLooserate: 100 },
-  { label: '80%', value: '80', realLooserate: 115 },
-  { label: '85%', value: '85', realLooserate: 131 },
-  { label: '90%', value: '90', realLooserate: 160 },
-  { label: '95%', value: '95', realLooserate: 196 },
-  { label: '100%', value: '100', realLooserate: 230 },
+  { label: '60%', value: '60', rake: 18, loserate: 45 },
+  { label: '65%', value: '65', rake: 20, loserate: 60 },
+  { label: '70%', value: '70', rake: 22, loserate: 70 },
+  { label: '75%', value: '75', rake: 26, loserate: 100 },
+  { label: '80%', value: '80', rake: 30, loserate: 130 },
+  { label: '85%', value: '85', rake: 34, loserate: 160 },
+  { label: '90%', value: '90', rake: 41, loserate: 200 },
 ];
 
 const FISH_INDEX = 3;
@@ -79,13 +76,16 @@ const initialSeats: SeatConfig[] = Array(6).fill(null).map((_, i) => ({
   seatIndex: i,
   type: i === FISH_INDEX ? 'Fish' : i === HERO_INDEX ? 'Hero' : 'Reg',
   fishVpip: i === FISH_INDEX ? '90' : undefined,
-  realLooserate: i === FISH_INDEX ? 160 : undefined,
+  fishRake: i === FISH_INDEX ? 41 : undefined,
+  fishLoserate: i === FISH_INDEX ? 200 : undefined,
 }));
 
 interface CalculationItem {
   fishIndex: number;
   vpip: string;
-  realLooserate: number;
+  loserate: number;
+  rake: number;
+  realLoserate: number;
   dist: number;
   posCoef: number;
   ev: number;
@@ -110,12 +110,14 @@ export function TableEvAnalyzer() {
     seats.forEach(seat => {
       if (seat.type === 'Fish') {
         const preset = FISH_VPIP_PRESETS.find(p => p.value === seat.fishVpip);
-        const realLooserate = preset?.realLooserate ?? seat.realLooserate ?? 0;
+        const loserate = preset?.loserate || seat.fishLoserate || 0;
+        const rake = preset?.rake || seat.fishRake || 0;
         
         const dist = getActiveDistanceClockwise(seat.seatIndex, heroSeat.seatIndex, seats);
         const posCoef = getPositionCoefficient(dist);
         
-        const evFromThisFish = (realLooserate / nReg) * posCoef;
+        const realLoserate = loserate - rake;
+        const evFromThisFish = (realLoserate / nReg) * posCoef;
         
         fishEvSum += evFromThisFish;
         breakdowns[seat.seatIndex] = evFromThisFish;
@@ -123,7 +125,9 @@ export function TableEvAnalyzer() {
         debug.push({
           fishIndex: seat.seatIndex,
           vpip: seat.fishVpip || '90',
-          realLooserate,
+          loserate,
+          rake,
+          realLoserate,
           dist,
           posCoef,
           ev: evFromThisFish
@@ -170,7 +174,8 @@ export function TableEvAnalyzer() {
       ...dialogConfig,
       type,
       fishVpip: type === 'Fish' ? '90' : undefined,
-      realLooserate: type === 'Fish' ? preset?.realLooserate : undefined,
+      fishRake: type === 'Fish' ? preset?.rake : undefined,
+      fishLoserate: type === 'Fish' ? preset?.loserate : undefined,
     });
   };
 
@@ -180,7 +185,8 @@ export function TableEvAnalyzer() {
     setDialogConfig({
       ...dialogConfig,
       fishVpip: value,
-      realLooserate: preset?.realLooserate || 0,
+      fishRake: preset?.rake || 0,
+      fishLoserate: preset?.loserate || 0,
     });
   };
 
@@ -237,12 +243,12 @@ export function TableEvAnalyzer() {
                   </div>
                   <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">Real Looserate:</span>
-                      <span className="font-mono">{item.realLooserate}</span>
+                      <span className="text-muted-foreground">Loss - Rake:</span>
+                      <span>{item.loserate} - {item.rake} = {item.realLoserate}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Share (N={calculation.nReg}):</span>
-                      <span>{(item.realLooserate / calculation.nReg).toFixed(1)}</span>
+                      <span>{(item.realLoserate / calculation.nReg).toFixed(1)}</span>
                     </div>
                     <div className="flex justify-between col-span-2">
                       <span className="text-muted-foreground">Position Coef:</span>
@@ -381,17 +387,31 @@ export function TableEvAnalyzer() {
                       <SelectContent>
                         {FISH_VPIP_PRESETS.map((preset) => (
                           <SelectItem key={preset.value} value={preset.value}>
-                            {preset.label} → Real Looserate: {preset.realLooserate}
+                            {preset.label} (Loss: {preset.loserate}, Rake: {preset.rake})
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
 
-                  <div className="bg-muted/50 p-3 rounded-md">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Real Looserate:</span>
-                      <span className="font-mono font-semibold">{dialogConfig.realLooserate || 0} bb/100</span>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-xs text-muted-foreground">Lose Rate (bb/100)</Label>
+                      <Input
+                        type="number"
+                        value={dialogConfig.fishLoserate || 0}
+                        onChange={(e) => setDialogConfig({ ...dialogConfig, fishLoserate: Number(e.target.value) })}
+                        disabled
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs text-muted-foreground">Rake (bb/100)</Label>
+                      <Input
+                        type="number"
+                        value={dialogConfig.fishRake || 0}
+                        onChange={(e) => setDialogConfig({ ...dialogConfig, fishRake: Number(e.target.value) })}
+                        disabled
+                      />
                     </div>
                   </div>
                 </div>
