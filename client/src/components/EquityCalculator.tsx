@@ -390,6 +390,9 @@ export function EquityCalculator() {
           }
           
           // Update progress after each batch
+          const progressPercent = (batchEnd / NUM_SAMPLES) * 100;
+          setProgress(progressPercent);
+          
           if (totalSamples > 0) {
             setResult({
               results: validPlayers.map(p => ({
