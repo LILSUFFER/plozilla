@@ -232,23 +232,30 @@ export function TableEvAnalyzer() {
             <div className="flex justify-between text-sm items-center">
               <span className="text-muted-foreground">Hero Rake (bb/100)</span>
               <Input 
-                type="number" 
+                type="text"
+                inputMode="numeric"
                 value={heroRake}
-                onChange={(e) => setHeroRake(Number(e.target.value))}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/[^0-9]/g, '');
+                  setHeroRake(val === '' ? 0 : parseInt(val, 10));
+                }}
                 onFocus={(e) => e.target.select()}
-                className="w-16 h-7 text-sm font-mono text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                className="w-16 h-7 text-sm font-mono text-right"
                 data-testid="input-hero-rake"
               />
             </div>
             <div className="flex justify-between text-sm items-center">
               <span className="text-muted-foreground">Rakeback (%)</span>
               <Input 
-                type="number" 
+                type="text"
+                inputMode="numeric"
                 value={rakeback}
-                min={0}
-                onChange={(e) => setRakeback(Math.max(0, Number(e.target.value)))}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/[^0-9]/g, '');
+                  setRakeback(val === '' ? 0 : parseInt(val, 10));
+                }}
                 onFocus={(e) => e.target.select()}
-                className="w-16 h-7 text-sm font-mono text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                className="w-16 h-7 text-sm font-mono text-right"
                 data-testid="input-rakeback"
               />
             </div>
