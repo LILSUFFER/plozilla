@@ -8,9 +8,10 @@ A browser-based 5-Card Omaha equity calculator similar to ProPokerTools Oracle. 
 - **SaaS Architecture**: Restructured as authenticated web application
   - Landing page at / (public) with GTOWizard-style design
   - Equity calculator at /app (requires authentication)
-  - Replit Auth integration (OIDC with Google, GitHub, email login)
+  - Google OAuth integration (passport-google-oauth20)
   - PostgreSQL session storage with user profiles
   - User avatar and logout functionality in app header
+  - Configured for plozilla.com domain
 - **Board Validation**: Only valid poker states allowed (0, 3, 4, or 5 cards)
   - Preflop: 0 cards, Flop: 3 cards, Turn: 4 cards, River: 5 cards
   - Invalid states (1-2 cards) show error message and disable calculation
