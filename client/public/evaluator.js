@@ -16,6 +16,17 @@ async function instantiate(module, imports = {}) {
   };
   const { exports } = await WebAssembly.instantiate(module, adaptedImports);
   const memory = exports.memory || imports.env.memory;
+  const adaptedExports = Object.setPrototypeOf({
+    setHandRanksBatch(startIdx, values) {
+      // assembly/index/setHandRanksBatch(i32, ~lib/staticarray/StaticArray<i32>) => void
+      values = __lowerStaticArray(__setU32, 4, 2, values, Int32Array) || __notnull();
+      exports.setHandRanksBatch(startIdx, values);
+    },
+    isTableLoaded() {
+      // assembly/index/isTableLoaded() => bool
+      return exports.isTableLoaded() != 0;
+    },
+  }, exports);
   function __liftString(pointer) {
     if (!pointer) return null;
     const
@@ -27,10 +38,39 @@ async function instantiate(module, imports = {}) {
     while (end - start > 1024) string += String.fromCharCode(...memoryU16.subarray(start, start += 1024));
     return string + String.fromCharCode(...memoryU16.subarray(start, end));
   }
-  return exports;
+  function __lowerStaticArray(lowerElement, id, align, values, typedConstructor) {
+    if (values == null) return 0;
+    const
+      length = values.length,
+      buffer = exports.__pin(exports.__new(length << align, id)) >>> 0;
+    if (typedConstructor) {
+      new typedConstructor(memory.buffer, buffer, length).set(values);
+    } else {
+      for (let i = 0; i < length; i++) lowerElement(buffer + (i << align >>> 0), values[i]);
+    }
+    exports.__unpin(buffer);
+    return buffer;
+  }
+  function __notnull() {
+    throw TypeError("value must not be null");
+  }
+  let __dataview = new DataView(memory.buffer);
+  function __setU32(pointer, value) {
+    try {
+      __dataview.setUint32(pointer, value, true);
+    } catch {
+      __dataview = new DataView(memory.buffer);
+      __dataview.setUint32(pointer, value, true);
+    }
+  }
+  return adaptedExports;
 }
 export const {
   memory,
+  setHandRank,
+  setHandRanksBatch,
+  markTableLoaded,
+  isTableLoaded,
   eval5,
   init,
   setPlayerHand,

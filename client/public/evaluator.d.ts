@@ -1,6 +1,27 @@
 /** Exported memory */
 export declare const memory: WebAssembly.Memory;
 /**
+ * assembly/index/setHandRank
+ * @param index `i32`
+ * @param rank `i32`
+ */
+export declare function setHandRank(index: number, rank: number): void;
+/**
+ * assembly/index/setHandRanksBatch
+ * @param startIdx `i32`
+ * @param values `~lib/staticarray/StaticArray<i32>`
+ */
+export declare function setHandRanksBatch(startIdx: number, values: ArrayLike<number>): void;
+/**
+ * assembly/index/markTableLoaded
+ */
+export declare function markTableLoaded(): void;
+/**
+ * assembly/index/isTableLoaded
+ * @returns `bool`
+ */
+export declare function isTableLoaded(): boolean;
+/**
  * assembly/index/eval5
  * @param c0 `i32`
  * @param c1 `i32`
