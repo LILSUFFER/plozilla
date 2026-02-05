@@ -55,9 +55,11 @@ export function calculateEquityFast(
 ): CalculationResult {
   const wasm = getWasm();
   if (wasm) {
+    console.log('Using WASM evaluator');
     return calculateWithWasm(wasm, players, board);
   }
   // Fallback to JS implementation if WASM not ready
+  console.log('Using JS fallback (WASM not ready)');
   return calculateEquityJS(players, board);
 }
 

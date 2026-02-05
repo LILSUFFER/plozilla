@@ -119,6 +119,7 @@ export function EquityCalculator() {
   const [isCalculating, setIsCalculating] = useState(false);
   const [progress, setProgress] = useState(0);
   const [resetKey, setResetKey] = useState(0);
+  const [calcTime, setCalcTime] = useState<number | null>(null);
   
   const allUsedCards = new Set<string>();
   for (const card of board) {
@@ -184,6 +185,7 @@ export function EquityCalculator() {
       const calcResult = calculateEquityFast(players, board);
       const elapsed = performance.now() - start;
       console.log(`Equity calculation: ${elapsed.toFixed(0)}ms for ${calcResult.totalTrials} trials`);
+      setCalcTime(elapsed);
       setResult(calcResult);
       setIsCalculating(false);
     });
@@ -309,11 +311,18 @@ export function EquityCalculator() {
         
         {result && !isCalculating && (
           <div className="space-y-4 pt-4 border-t">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
               <h3 className="font-semibold">Equity Results</h3>
-              <Badge variant="secondary">
-                {result.totalTrials.toLocaleString()} trials (Monte Carlo)
-              </Badge>
+              <div className="flex items-center gap-2">
+                {calcTime !== null && (
+                  <Badge variant="outline" data-testid="badge-calc-time">
+                    {calcTime < 1000 ? `${calcTime.toFixed(0)}ms` : `${(calcTime / 1000).toFixed(2)}s`}
+                  </Badge>
+                )}
+                <Badge variant="secondary" data-testid="badge-trials">
+                  {result.totalTrials.toLocaleString()} trials
+                </Badge>
+              </div>
             </div>
             
             <div className="space-y-3">
