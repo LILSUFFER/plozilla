@@ -250,13 +250,9 @@ export function TableEvAnalyzer() {
                       <span className="text-muted-foreground">Share (N={calculation.nReg}):</span>
                       <span>{(item.realLoserate / calculation.nReg).toFixed(1)}</span>
                     </div>
-                    <div className="flex justify-between">
+                    <div className="flex justify-between col-span-2">
                       <span className="text-muted-foreground">Position Coef:</span>
                       <span className="text-primary font-bold">{item.posCoef}x</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">My Rake:</span>
-                      <span className="text-red-500">-{heroRake}</span>
                     </div>
                   </div>
                   <div className="flex justify-between border-t pt-2 mt-2">
@@ -267,8 +263,21 @@ export function TableEvAnalyzer() {
                   </div>
                 </div>
               ))}
-              <div className="text-[10px] text-muted-foreground italic">
-                Final EV = Sum of all Fish EV contributions
+              <div className="bg-muted/30 p-3 rounded-lg space-y-2">
+                <div className="flex justify-between text-[11px]">
+                  <span className="text-muted-foreground">Sum of Fish EV:</span>
+                  <span className="font-mono">{calculation.debug.reduce((sum, d) => sum + d.ev, 0).toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-[11px]">
+                  <span className="text-muted-foreground">Hero Rake (once):</span>
+                  <span className="text-red-500 font-mono">-{heroRake}</span>
+                </div>
+                <div className="flex justify-between border-t pt-2 mt-1">
+                  <span className="text-[11px] font-semibold">Final EV:</span>
+                  <span className={cn("text-[11px] font-bold font-mono", calculation.totalEv > 0 ? "text-emerald-500" : "text-red-500")}>
+                    {calculation.totalEv > 0 ? "+" : ""}{calculation.totalEv.toFixed(2)}
+                  </span>
+                </div>
               </div>
             </div>
           )}
@@ -293,14 +302,6 @@ export function TableEvAnalyzer() {
               const isReg = seat.type === 'Reg';
               const isEmpty = seat.type === 'Empty';
 
-              let distLabel = '';
-              const fishSeats = seats.filter(s => s.type === 'Fish');
-              if (fishSeats.length > 0 && !isFish && !isEmpty) {
-                const fishSeat = fishSeats[0];
-                const dist = getActiveDistanceClockwise(fishSeat.seatIndex, i, seats);
-                distLabel = posLabels[dist] || '';
-              }
-
               return (
                 <button
                   key={i}
@@ -314,12 +315,6 @@ export function TableEvAnalyzer() {
                   className="z-10 w-20 h-20 flex flex-col items-center justify-center group focus:outline-none"
                   data-testid={`seat-${i}`}
                 >
-                  {distLabel && (
-                    <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-slate-900 border border-slate-600 text-[9px] font-bold px-1.5 py-0.5 rounded text-slate-300 z-20">
-                      {distLabel}
-                    </div>
-                  )}
-                  
                   <div className={cn(
                     "w-14 h-14 rounded-full flex flex-col items-center justify-center border-2 transition-all shadow-lg",
                     isHero ? "bg-emerald-500/20 border-emerald-500 text-emerald-500" :
