@@ -14,8 +14,8 @@ const SUIT_MAP: Record<string, number> = { 'c': 0, 'd': 1, 'h': 2, 's': 3 };
 const H2 = [[0,1],[0,2],[0,3],[0,4],[1,2],[1,3],[1,4],[2,3],[2,4],[3,4]];
 const B3 = [[0,1,2],[0,1,3],[0,1,4],[0,2,3],[0,2,4],[0,3,4],[1,2,3],[1,2,4],[1,3,4],[2,3,4]];
 
-const MONTE_CARLO_THRESHOLD = 50000;
-const MONTE_CARLO_SAMPLES = 100000;
+const MONTE_CARLO_THRESHOLD = 10000;
+const MONTE_CARLO_SAMPLES = 200000;
 
 function eval5(r0: number, r1: number, r2: number, r3: number, r4: number,
                s0: number, s1: number, s2: number, s3: number, s4: number): number {
