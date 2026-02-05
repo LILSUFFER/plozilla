@@ -5,6 +5,11 @@
 A browser-based 5-Card Omaha equity calculator similar to ProPokerTools Oracle. The calculator supports board input (0-5 cards), multiple player hands (5 cards each), concatenated card notation (e.g., "7s6hJdQc8c"), and performs exhaustive equity calculations with accurate Omaha hand evaluation (exactly 2 hole cards + 3 board cards). Built as a client-side React TypeScript application.
 
 ## Recent Changes (Feb 2026)
+- **Hand History Import**: Paste hand histories from clipboard with street selection
+  - Parser supports PLO-5 formats with space-separated or concatenated cards
+  - Extracts hero hand, showdown hands, and board cards at each street
+  - Street selection dialog to choose preflop/flop/turn/river for analysis
+  - Handles "Dealt to Hero [cards]", "shows [cards]", and board markers
 - **Full ProPokerTools Range Syntax Support**: Complete Generic Syntax implementation
   - **Hand counting**: AA = 108,336 hands (all 5-card hands with at least 2 aces)
   - **Suit variables**: x, y, z, w for suited patterns (AxAyxy = double-suited aces)
