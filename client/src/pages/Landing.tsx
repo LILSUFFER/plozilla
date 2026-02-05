@@ -1,8 +1,8 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { Calculator, Zap, Target, TrendingUp, ChevronRight, MessageCircle } from "lucide-react";
-import { SiGoogle } from "react-icons/si";
+import { Calculator, Zap, Target, TrendingUp, ChevronRight } from "lucide-react";
+import { SiGoogle, SiTelegram } from "react-icons/si";
 
 export default function Landing() {
   return (
@@ -23,7 +23,7 @@ export default function Landing() {
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="icon" asChild data-testid="button-telegram">
               <a href="https://t.me/plozilla_chat" target="_blank" rel="noopener noreferrer">
-                <MessageCircle className="w-4 h-4" />
+                <SiTelegram className="w-4 h-4" />
               </a>
             </Button>
             <ThemeToggle />
