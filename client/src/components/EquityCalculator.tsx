@@ -95,16 +95,18 @@ function PlayerRow({ player, onInputChange, onRemove, equity, isWinner, disabled
         </div>
       )}
       
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={() => onRemove(player.id)}
-        disabled={disabled}
-        className="shrink-0"
-        data-testid={`button-remove-player-${player.id}`}
-      >
-        <Trash2 className="w-4 h-4" />
-      </Button>
+      {player.id !== 1 && (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => onRemove(player.id)}
+          disabled={disabled}
+          className="shrink-0"
+          data-testid={`button-remove-player-${player.id}`}
+        >
+          <Trash2 className="w-4 h-4" />
+        </Button>
+      )}
     </div>
   );
 }
@@ -190,6 +192,7 @@ export function EquityCalculator() {
   };
   
   const removePlayer = (id: number) => {
+    if (id === 1) return; // Cannot remove Hero
     if (players.length <= 2) return;
     setPlayers(prev => prev.filter(p => p.id !== id));
   };
