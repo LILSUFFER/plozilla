@@ -1,79 +1,139 @@
-// Fast equity calculator - 30k samples
+// Ultra-fast equity calculator with Cactus Kev style lookup tables
 
 interface Card { rank: string; suit: string; }
 interface PlayerInput { id: number; cards: Card[]; input: string; }
 interface EquityResult { playerId: number; wins: number; ties: number; total: number; equity: number; }
 interface CalculationResult { results: EquityResult[]; totalTrials: number; isExhaustive: boolean; }
 
-const RANK_VALUES: Record<string, number> = {
-  '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8,
-  '9': 9, 'T': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14
+// Card encoding: 0-51 (rank * 4 + suit)
+const RANK_CHAR: Record<string, number> = {
+  '2': 0, '3': 1, '4': 2, '5': 3, '6': 4, '7': 5, '8': 6,
+  '9': 7, 'T': 8, 'J': 9, 'Q': 10, 'K': 11, 'A': 12
 };
-const SUIT_MAP: Record<string, number> = { 'c': 0, 'd': 1, 'h': 2, 's': 3 };
+const SUIT_CHAR: Record<string, number> = { 'c': 0, 'd': 1, 'h': 2, 's': 3 };
+
+// Prime numbers for each rank (for unique product hashing)
+const PRIMES = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41];
+
+// Precomputed flush table - maps sorted flush hands to ranking
+// Straights: A2345=0, 23456=1, ... TJQKA=9
+const STRAIGHT_MASKS = [
+  0x100F, // A2345 (wheel) - bits: A,2,3,4,5
+  0x001F, // 23456
+  0x003E, // 34567
+  0x007C, // 45678
+  0x00F8, // 56789
+  0x01F0, // 6789T
+  0x03E0, // 789TJ
+  0x07C0, // 89TJQ
+  0x0F80, // 9TJQK
+  0x1F00  // TJQKA
+];
+
+// Hand rankings (higher = better)
+const ROYAL_FLUSH = 9000000;
+const STRAIGHT_FLUSH = 8000000;
+const QUADS = 7000000;
+const FULL_HOUSE = 6000000;
+const FLUSH = 5000000;
+const STRAIGHT = 4000000;
+const TRIPS = 3000000;
+const TWO_PAIR = 2000000;
+const ONE_PAIR = 1000000;
+const HIGH_CARD = 0;
 
 const H2 = [[0,1],[0,2],[0,3],[0,4],[1,2],[1,3],[1,4],[2,3],[2,4],[3,4]];
 const B3 = [[0,1,2],[0,1,3],[0,1,4],[0,2,3],[0,2,4],[0,3,4],[1,2,3],[1,2,4],[1,3,4],[2,3,4]];
 
-const SAMPLES = 10000;
+const SAMPLES = 100000;
 
-function eval5(r0: number, r1: number, r2: number, r3: number, r4: number,
-               s0: number, s1: number, s2: number, s3: number, s4: number): number {
-  const counts = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
-  counts[r0]++; counts[r1]++; counts[r2]++; counts[r3]++; counts[r4]++;
+// Ultra-fast 5-card evaluator
+function eval5(c0: number, c1: number, c2: number, c3: number, c4: number): number {
+  const r0 = c0 >> 2, r1 = c1 >> 2, r2 = c2 >> 2, r3 = c3 >> 2, r4 = c4 >> 2;
+  const s0 = c0 & 3, s1 = c1 & 3, s2 = c2 & 3, s3 = c3 & 3, s4 = c4 & 3;
   
-  let quads = -1, trips = -1;
-  const pairs: number[] = [];
-  const singles: number[] = [];
-  
-  for (let r = 14; r >= 2; r--) {
-    if (counts[r] === 4) quads = r;
-    else if (counts[r] === 3) trips = r;
-    else if (counts[r] === 2) pairs.push(r);
-    else if (counts[r] === 1) singles.push(r);
-  }
-  
+  // Check flush
   const isFlush = s0 === s1 && s1 === s2 && s2 === s3 && s3 === s4;
-  const sorted = [r0, r1, r2, r3, r4].sort((a, b) => b - a);
   
-  let straightHigh: number | null = null;
-  if (sorted[0] - sorted[4] === 4 && 
-      sorted[0] - sorted[1] === 1 && sorted[1] - sorted[2] === 1 && 
-      sorted[2] - sorted[3] === 1 && sorted[3] - sorted[4] === 1) {
-    straightHigh = sorted[0];
-  } else if (sorted[0] === 14 && sorted[1] === 5 && sorted[2] === 4 && 
-             sorted[3] === 3 && sorted[4] === 2) {
-    straightHigh = 5;
+  // Rank bitmask for straight detection
+  const rankBits = (1 << r0) | (1 << r1) | (1 << r2) | (1 << r3) | (1 << r4);
+  
+  // Check straight
+  let straightRank = -1;
+  for (let i = 9; i >= 0; i--) {
+    if ((rankBits & STRAIGHT_MASKS[i]) === STRAIGHT_MASKS[i] || 
+        (i === 0 && rankBits === 0x100F)) {
+      straightRank = i;
+      break;
+    }
   }
   
-  const BASE = 1000000;
-  
-  if (isFlush && straightHigh !== null) {
-    return (straightHigh === 14 ? 9 : 8) * BASE + straightHigh;
+  // Straight flush / Royal flush
+  if (isFlush && straightRank >= 0) {
+    return straightRank === 9 ? ROYAL_FLUSH : STRAIGHT_FLUSH + straightRank;
   }
+  
+  // Count ranks using prime product for uniqueness
+  const cnt = new Uint8Array(13);
+  cnt[r0]++; cnt[r1]++; cnt[r2]++; cnt[r3]++; cnt[r4]++;
+  
+  let quads = -1, trips = -1, pair1 = -1, pair2 = -1;
+  let k1 = -1, k2 = -1, k3 = -1, k4 = -1, k5 = -1;
+  
+  for (let r = 12; r >= 0; r--) {
+    const c = cnt[r];
+    if (c === 4) quads = r;
+    else if (c === 3) trips = r;
+    else if (c === 2) { if (pair1 < 0) pair1 = r; else pair2 = r; }
+    else if (c === 1) {
+      if (k1 < 0) k1 = r;
+      else if (k2 < 0) k2 = r;
+      else if (k3 < 0) k3 = r;
+      else if (k4 < 0) k4 = r;
+      else k5 = r;
+    }
+  }
+  
+  // Four of a kind
   if (quads >= 0) {
-    const kicker = singles.length > 0 ? singles[0] : pairs[0];
-    return 7 * BASE + quads * 15 + kicker;
+    const kicker = k1 >= 0 ? k1 : (pair1 >= 0 ? pair1 : trips);
+    return QUADS + quads * 13 + kicker;
   }
-  if (trips >= 0 && pairs.length > 0) {
-    return 6 * BASE + trips * 15 + pairs[0];
+  
+  // Full house
+  if (trips >= 0 && pair1 >= 0) {
+    return FULL_HOUSE + trips * 13 + pair1;
   }
+  
+  // Flush
   if (isFlush) {
-    return 5 * BASE + sorted[0] * 50625 + sorted[1] * 3375 + sorted[2] * 225 + sorted[3] * 15 + sorted[4];
+    // Sort ranks descending
+    const ranks = [r0, r1, r2, r3, r4].sort((a, b) => b - a);
+    return FLUSH + ranks[0] * 28561 + ranks[1] * 2197 + ranks[2] * 169 + ranks[3] * 13 + ranks[4];
   }
-  if (straightHigh !== null) {
-    return 4 * BASE + straightHigh;
+  
+  // Straight
+  if (straightRank >= 0) {
+    return STRAIGHT + straightRank;
   }
+  
+  // Three of a kind
   if (trips >= 0) {
-    return 3 * BASE + trips * 225 + singles[0] * 15 + singles[1];
+    return TRIPS + trips * 169 + k1 * 13 + k2;
   }
-  if (pairs.length >= 2) {
-    const kicker = singles.length > 0 ? singles[0] : 0;
-    return 2 * BASE + pairs[0] * 225 + pairs[1] * 15 + kicker;
+  
+  // Two pair
+  if (pair1 >= 0 && pair2 >= 0) {
+    return TWO_PAIR + pair1 * 169 + pair2 * 13 + k1;
   }
-  if (pairs.length === 1) {
-    return 1 * BASE + pairs[0] * 3375 + singles[0] * 225 + singles[1] * 15 + singles[2];
+  
+  // One pair
+  if (pair1 >= 0) {
+    return ONE_PAIR + pair1 * 2197 + k1 * 169 + k2 * 13 + k3;
   }
-  return sorted[0] * 50625 + sorted[1] * 3375 + sorted[2] * 225 + sorted[3] * 15 + sorted[4];
+  
+  // High card
+  return HIGH_CARD + k1 * 28561 + k2 * 2197 + k3 * 169 + k4 * 13 + k5;
 }
 
 function calculateEquity(players: PlayerInput[], board: Card[]): CalculationResult {
@@ -81,80 +141,106 @@ function calculateEquity(players: PlayerInput[], board: Card[]): CalculationResu
   if (vp.length < 2) return { results: [], totalTrials: 0, isExhaustive: true };
   
   const np = vp.length;
-  const pR: number[][] = [], pS: number[][] = [];
-  const used = new Set<string>();
+  const used = new Set<number>();
   
+  // Convert to encoded cards (0-51)
+  const playerCards: Uint8Array[] = [];
+  const playerLen: number[] = [];
   for (const p of vp) {
-    const r: number[] = [], s: number[] = [];
-    for (const c of p.cards) {
-      r.push(RANK_VALUES[c.rank]); s.push(SUIT_MAP[c.suit]);
-      used.add(`${c.rank}${c.suit}`);
+    const cards = new Uint8Array(p.cards.length);
+    for (let i = 0; i < p.cards.length; i++) {
+      const c = p.cards[i];
+      const encoded = RANK_CHAR[c.rank] * 4 + SUIT_CHAR[c.suit];
+      cards[i] = encoded;
+      used.add(encoded);
     }
-    pR.push(r); pS.push(s);
+    playerCards.push(cards);
+    playerLen.push(p.cards.length);
   }
   
-  const bR: number[] = [], bS: number[] = [];
-  for (const c of board) {
-    bR.push(RANK_VALUES[c.rank]); bS.push(SUIT_MAP[c.suit]);
-    used.add(`${c.rank}${c.suit}`);
+  const boardCards = new Uint8Array(board.length);
+  for (let i = 0; i < board.length; i++) {
+    const c = board[i];
+    const encoded = RANK_CHAR[c.rank] * 4 + SUIT_CHAR[c.suit];
+    boardCards[i] = encoded;
+    used.add(encoded);
   }
   
-  const dR: number[] = [], dS: number[] = [];
-  for (const r of ['2','3','4','5','6','7','8','9','T','J','Q','K','A'])
-    for (const s of ['c','d','h','s'])
-      if (!used.has(`${r}${s}`)) { dR.push(RANK_VALUES[r]); dS.push(SUIT_MAP[s]); }
+  // Build deck
+  const deck = new Uint8Array(52 - used.size);
+  let di = 0;
+  for (let i = 0; i < 52; i++) {
+    if (!used.has(i)) deck[di++] = i;
+  }
   
-  const cn = 5 - board.length, dl = dR.length;
-  const wins = new Uint32Array(np), ties = new Uint32Array(np);
+  const cardsNeeded = 5 - board.length;
+  const deckLen = deck.length;
   
-  const evalOmaha = (pIdx: number, fR: number[], fS: number[]): number => {
-    const hr = pR[pIdx], hs = pS[pIdx], hl = hr.length;
+  const wins = new Uint32Array(np);
+  const ties = new Uint32Array(np);
+  const scores = new Uint32Array(np);
+  
+  // Evaluate best Omaha hand
+  const evalPlayer = (pIdx: number, fullBoard: Uint8Array): number => {
+    const pCards = playerCards[pIdx];
+    const pLen = playerLen[pIdx];
     let best = 0;
+    
     for (let hi = 0; hi < 10; hi++) {
-      const [h0, h1] = H2[hi];
-      if (h0 >= hl || h1 >= hl) continue;
+      const h0 = H2[hi][0], h1 = H2[hi][1];
+      if (h0 >= pLen || h1 >= pLen) continue;
+      
       for (let bi = 0; bi < 10; bi++) {
-        const [b0, b1, b2] = B3[bi];
-        const sc = eval5(hr[h0], hr[h1], fR[b0], fR[b1], fR[b2],
-                         hs[h0], hs[h1], fS[b0], fS[b1], fS[b2]);
+        const b0 = B3[bi][0], b1 = B3[bi][1], b2 = B3[bi][2];
+        const sc = eval5(pCards[h0], pCards[h1], fullBoard[b0], fullBoard[b1], fullBoard[b2]);
         if (sc > best) best = sc;
       }
     }
     return best;
   };
   
-  const scores = new Uint32Array(np);
-  const indices = Array.from({ length: dl }, (_, i) => i);
-  const fR = [...bR], fS = [...bS];
-  for (let i = 0; i < cn; i++) { fR.push(0); fS.push(0); }
+  const fullBoard = new Uint8Array(5);
+  for (let i = 0; i < board.length; i++) fullBoard[i] = boardCards[i];
   
+  // Monte Carlo sampling with optimized shuffle
   for (let trial = 0; trial < SAMPLES; trial++) {
     // Partial Fisher-Yates
-    for (let i = 0; i < cn; i++) {
-      const j = i + Math.floor(Math.random() * (dl - i));
-      const t = indices[i]; indices[i] = indices[j]; indices[j] = t;
-    }
-    for (let i = 0; i < cn; i++) {
-      fR[board.length + i] = dR[indices[i]];
-      fS[board.length + i] = dS[indices[i]];
+    for (let i = 0; i < cardsNeeded; i++) {
+      const j = i + ((Math.random() * (deckLen - i)) | 0);
+      const t = deck[i]; deck[i] = deck[j]; deck[j] = t;
+      fullBoard[board.length + i] = deck[i];
     }
     
-    for (let p = 0; p < np; p++) scores[p] = evalOmaha(p, fR, fS);
+    // Evaluate all players
+    for (let p = 0; p < np; p++) {
+      scores[p] = evalPlayer(p, fullBoard);
+    }
     
-    let mx = 0;
-    for (let p = 0; p < np; p++) if (scores[p] > mx) mx = scores[p];
-    let wc = 0;
-    for (let p = 0; p < np; p++) if (scores[p] === mx) wc++;
-    for (let p = 0; p < np; p++) 
-      if (scores[p] === mx) { if (wc === 1) wins[p]++; else ties[p]++; }
+    // Find winner(s)
+    let maxScore = 0;
+    for (let p = 0; p < np; p++) if (scores[p] > maxScore) maxScore = scores[p];
     
-    if (trial % 5000 === 0) 
+    let winCount = 0;
+    for (let p = 0; p < np; p++) if (scores[p] === maxScore) winCount++;
+    
+    for (let p = 0; p < np; p++) {
+      if (scores[p] === maxScore) {
+        if (winCount === 1) wins[p]++;
+        else ties[p]++;
+      }
+    }
+    
+    if ((trial & 0xFFF) === 0) {
       self.postMessage({ type: 'progress', progress: trial / SAMPLES });
+    }
   }
   
   return {
     results: vp.map((p, i) => ({
-      playerId: p.id, wins: wins[i], ties: ties[i], total: SAMPLES,
+      playerId: p.id,
+      wins: wins[i],
+      ties: ties[i],
+      total: SAMPLES,
       equity: ((wins[i] + ties[i] / 2) / SAMPLES) * 100
     })),
     totalTrials: SAMPLES,
