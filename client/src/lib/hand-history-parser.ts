@@ -97,8 +97,6 @@ function extractConcatenatedCards(str: string): Card[] {
 }
 
 export function parseHandHistory(text: string): ParsedHandHistory | null {
-  const lines = text.split('\n').map(l => l.trim());
-  
   const result: ParsedHandHistory = {
     heroHand: null,
     players: [],
@@ -106,14 +104,23 @@ export function parseHandHistory(text: string): ParsedHandHistory | null {
     availableStreets: []
   };
   
-  const heroMatch = text.match(/Dealt to Hero \[([^\]]+)\]/);
-  if (heroMatch) {
-    result.heroHand = parseCards(heroMatch[1]);
+  // Format 1: PokerStars style - "Dealt to Hero [cards]"
+  const heroMatch1 = text.match(/Dealt to Hero \[([^\]]+)\]/i);
+  if (heroMatch1) {
+    result.heroHand = parseCards(heroMatch1[1]);
   }
   
-  // Match "shows" or "showed" with various player name formats
-  const showdownMatches = Array.from(text.matchAll(/([^\n:]+): (?:shows?|showed?) \[([^\]]+)\]/gi));
-  for (const match of showdownMatches) {
+  // Format 2: DriveHUD style - "Dealt to Hero: cards"
+  if (!result.heroHand) {
+    const heroMatch2 = text.match(/Dealt to Hero:\s*([^\n]+)/i);
+    if (heroMatch2) {
+      result.heroHand = parseCards(heroMatch2[1]);
+    }
+  }
+  
+  // Format 1: PokerStars style - "player: shows [cards]"
+  const showdownMatches1 = Array.from(text.matchAll(/([^\n:]+): (?:shows?|showed?) \[([^\]]+)\]/gi));
+  for (const match of showdownMatches1) {
     const playerName = match[1].trim();
     const hand = parseCards(match[2]);
     if (hand.length === 5 && playerName.toLowerCase() !== 'hero') {
@@ -121,35 +128,88 @@ export function parseHandHistory(text: string): ParsedHandHistory | null {
     }
   }
   
+  // Format 2: DriveHUD style - "PLAYER shows: cards" (no brackets)
+  const showdownMatches2 = Array.from(text.matchAll(/^(\w+) shows:\s*([^\n]+)/gim));
+  for (const match of showdownMatches2) {
+    const playerName = match[1].trim();
+    const hand = parseCards(match[2]);
+    if (hand.length === 5 && playerName.toLowerCase() !== 'hero') {
+      // Check if this player is already added
+      const exists = result.players.some(p => p.name === playerName);
+      if (!exists) {
+        result.players.push({ name: playerName, hand, isHero: false });
+      }
+    }
+  }
+  
   if (result.heroHand && result.heroHand.length === 5) {
     result.players.unshift({ name: 'Hero', hand: result.heroHand, isHero: true });
   }
   
-  const flopMatch = text.match(/\*\*\* FLOP \*\*\* \[([^\]]+)\]/);
-  if (flopMatch) {
-    const flopCards = parseCards(flopMatch[1]);
+  // Format 1: PokerStars style - "*** FLOP *** [cards]"
+  const flopMatch1 = text.match(/\*\*\* FLOP \*\*\* \[([^\]]+)\]/);
+  if (flopMatch1) {
+    const flopCards = parseCards(flopMatch1[1]);
     if (flopCards.length === 3) {
       result.board.flop = flopCards;
     }
   }
   
-  const turnMatch = text.match(/\*\*\* TURN \*\*\* \[[^\]]+\] \[([^\]]+)\]/);
-  if (turnMatch) {
-    const turnCard = parseCard(turnMatch[1].trim());
+  // Format 2: DriveHUD style - "Flop (BBs): cards"
+  if (!result.board.flop) {
+    const flopMatch2 = text.match(/^Flop[^:]*:\s*([^\n]+)/im);
+    if (flopMatch2) {
+      const flopCards = parseCards(flopMatch2[1]);
+      if (flopCards.length >= 3) {
+        result.board.flop = flopCards.slice(0, 3);
+      }
+    }
+  }
+  
+  // Format 1: PokerStars style - "*** TURN *** [flop] [turn]"
+  const turnMatch1 = text.match(/\*\*\* TURN \*\*\* \[[^\]]+\] \[([^\]]+)\]/);
+  if (turnMatch1) {
+    const turnCard = parseCard(turnMatch1[1].trim());
     if (turnCard) {
       result.board.turn = turnCard;
     }
   }
   
-  const riverMatch = text.match(/\*\*\* RIVER \*\*\* \[[^\]]+\] \[([^\]]+)\]/);
-  if (riverMatch) {
-    const riverCard = parseCard(riverMatch[1].trim());
+  // Format 2: DriveHUD style - "Turn (BBs): flop cards + turn card"
+  if (!result.board.turn) {
+    const turnMatch2 = text.match(/^Turn[^:]*:\s*([^\n]+)/im);
+    if (turnMatch2) {
+      const turnCards = parseCards(turnMatch2[1]);
+      if (turnCards.length >= 4) {
+        result.board.flop = turnCards.slice(0, 3);
+        result.board.turn = turnCards[3];
+      }
+    }
+  }
+  
+  // Format 1: PokerStars style - "*** RIVER *** [flop + turn] [river]"
+  const riverMatch1 = text.match(/\*\*\* RIVER \*\*\* \[[^\]]+\] \[([^\]]+)\]/);
+  if (riverMatch1) {
+    const riverCard = parseCard(riverMatch1[1].trim());
     if (riverCard) {
       result.board.river = riverCard;
     }
   }
   
-  if (result.players.length >= 2 || result.heroHand) {
+  // Format 2: DriveHUD style - "River (BBs): all 5 board cards"
+  if (!result.board.river) {
+    const riverMatch2 = text.match(/^River[^:]*:\s*([^\n]+)/im);
+    if (riverMatch2) {
+      const riverCards = parseCards(riverMatch2[1]);
+      if (riverCards.length >= 5) {
+        result.board.flop = riverCards.slice(0, 3);
+        result.board.turn = riverCards[3];
+        result.board.river = riverCards[4];
+      }
+    }
+  }
+  
+  if (result.players.length >= 1 || result.heroHand) {
     result.availableStreets.push('preflop');
     
     if (result.board.flop) {
