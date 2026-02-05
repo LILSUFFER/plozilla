@@ -1,12 +1,13 @@
 import { useEffect } from 'react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { EquityCalculator } from '@/components/EquityCalculator';
+import { TableEvAnalyzer } from '@/components/TableEvAnalyzer';
 import { Card as UICard, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { BookOpen, TrendingUp, LogOut, Loader2 } from 'lucide-react';
+import { BookOpen, TrendingUp, LogOut, Loader2, DollarSign } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
 
@@ -75,10 +76,14 @@ export default function AppPage() {
       
       <main className="container mx-auto px-4 py-6 space-y-6">
         <Tabs defaultValue="equity" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 max-w-xs mx-auto">
+          <TabsList className="grid w-full grid-cols-3 max-w-md mx-auto">
             <TabsTrigger value="equity" className="flex items-center gap-2" data-testid="tab-equity">
               <TrendingUp className="w-4 h-4" />
               <span className="hidden sm:inline">Equity</span>
+            </TabsTrigger>
+            <TabsTrigger value="table-ev" className="flex items-center gap-2" data-testid="tab-table-ev">
+              <DollarSign className="w-4 h-4" />
+              <span className="hidden sm:inline">Table EV</span>
             </TabsTrigger>
             <TabsTrigger value="learn" className="flex items-center gap-2" data-testid="tab-learn">
               <BookOpen className="w-4 h-4" />
@@ -88,6 +93,10 @@ export default function AppPage() {
           
           <TabsContent value="equity" className="space-y-6">
             <EquityCalculator />
+          </TabsContent>
+
+          <TabsContent value="table-ev" className="space-y-6">
+            <TableEvAnalyzer />
           </TabsContent>
           
           <TabsContent value="learn" className="space-y-6">
