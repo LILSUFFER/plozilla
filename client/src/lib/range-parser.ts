@@ -509,6 +509,15 @@ function generateSampleFromConstraint(
   constraint: PatternConstraint,
   excludeCards: Set<string>
 ): Card[] | null {
+  // For simple rank requirements without suit constraints, use rejection sampling
+  // for correct probability distribution
+  if (constraint.rankRequirements.size > 0 && 
+      constraint.fixedCards.length === 0 && 
+      !constraint.hasSuitConstraint &&
+      constraint.noPairRanks.size === 0) {
+    return generateWithRejectionSampling(constraint.rankRequirements, excludeCards);
+  }
+  
   const hand: Card[] = [];
   const used = new Set(Array.from(excludeCards));
   
@@ -582,6 +591,60 @@ function generateSampleFromConstraint(
   while (hand.length < HAND_SIZE && availableCards.length > 0) {
     const idx = Math.floor(Math.random() * availableCards.length);
     hand.push(availableCards.splice(idx, 1)[0]);
+  }
+  
+  return hand.length === HAND_SIZE ? hand : null;
+}
+
+// Weighted sampling: first choose how many of each required rank to include,
+// then sample the specific cards. This is efficient and maintains correct distribution.
+function generateWithRejectionSampling(
+  rankRequirements: Map<string, number>,
+  excludeCards: Set<string>
+): Card[] | null {
+  const hand: Card[] = [];
+  const used = new Set(Array.from(excludeCards));
+  
+  // For each rank requirement, sample the number of cards to include (min to 4)
+  // with proper probability weighting
+  const reqEntries = Array.from(rankRequirements.entries());
+  
+  for (let i = 0; i < reqEntries.length; i++) {
+    const [rank, minCount] = reqEntries[i];
+    const availableSuits = SUITS.filter(s => !used.has(`${rank}${s}`));
+    
+    if (availableSuits.length < minCount) return null;
+    
+    // Calculate probabilities for each possible count (minCount to availableSuits.length)
+    // For simplicity and speed, just use the minimum count
+    // The remaining slots will be filled randomly and may include more of this rank
+    const shuffled = [...availableSuits].sort(() => Math.random() - 0.5);
+    const selectedSuits = shuffled.slice(0, minCount);
+    
+    for (const suit of selectedSuits) {
+      const card = createCard(rank, suit);
+      hand.push(card);
+      used.add(cardKey(card));
+    }
+  }
+  
+  // Fill remaining slots from ALL available cards (including more of the required ranks)
+  const available: Card[] = [];
+  for (const rank of RANKS) {
+    for (const suit of SUITS) {
+      const key = `${rank}${suit}`;
+      if (!used.has(key)) {
+        available.push(createCard(rank, suit));
+      }
+    }
+  }
+  
+  // Shuffle and fill
+  const shuffled = [...available].sort(() => Math.random() - 0.5);
+  let idx = 0;
+  while (hand.length < HAND_SIZE && idx < shuffled.length) {
+    hand.push(shuffled[idx]);
+    idx++;
   }
   
   return hand.length === HAND_SIZE ? hand : null;

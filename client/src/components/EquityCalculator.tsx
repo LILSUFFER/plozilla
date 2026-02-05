@@ -3,7 +3,7 @@ import { type Card } from '@/lib/poker-evaluator';
 import { parseCardsConcat, type PlayerInput, type CalculationResult } from '@/lib/equity-calculator';
 import { calculateEquityFast } from '@/lib/wasm-equity';
 import { getCachedEquity, setCachedEquity, getMemoryCacheSize } from '@/lib/equity-cache';
-import { parseRange, getRandomHandFromRange } from '@/lib/range-parser';
+import { parseRange, getRandomHandFromRange, generateRandomHandFromPattern } from '@/lib/range-parser';
 import { parseHandHistory, getStreetBoard, getStreetName, type ParsedHandHistory } from '@/lib/hand-history-parser';
 import { Card as UICard, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -170,6 +170,7 @@ export function EquityCalculator() {
           cards: rangeResult.hands[0],
           isRange: true,
           rangeHands: rangeResult.hands,
+          rangePattern: input.trim(),
           comboCount: rangeResult.comboCount
         };
       }
@@ -299,8 +300,9 @@ export function EquityCalculator() {
     
     if (hasRanges) {
       const runRangeCalculation = async () => {
-        const NUM_SAMPLES = 600000;
-        const BATCH_SIZE = 1000;
+        const TARGET_SAMPLES = 600000;
+        const MAX_ATTEMPTS = 2000000; // Max attempts to reach target
+        const BATCH_SIZE = 2000;
         const equityTotals: Record<number, number> = {};
         let totalSamples = 0;
         
@@ -330,10 +332,12 @@ export function EquityCalculator() {
           return boardCards;
         };
         
-        for (let batchStart = 0; batchStart < NUM_SAMPLES; batchStart += BATCH_SIZE) {
-          const batchEnd = Math.min(batchStart + BATCH_SIZE, NUM_SAMPLES);
+        let attempts = 0;
+        while (totalSamples < TARGET_SAMPLES && attempts < MAX_ATTEMPTS) {
+          const batchAttempts = Math.min(BATCH_SIZE, MAX_ATTEMPTS - attempts);
           
-          for (let sample = batchStart; sample < batchEnd; sample++) {
+          for (let i = 0; i < batchAttempts && totalSamples < TARGET_SAMPLES; i++) {
+            attempts++;
             const usedCards = new Set(usedByBoard);
             let validSample = true;
             const sampledHands: Card[][] = [];
@@ -341,7 +345,16 @@ export function EquityCalculator() {
             for (const p of validPlayers) {
               let baseHand: Card[];
               
-              if (p.isRange && p.rangeHands) {
+              if (p.isRange && p.rangePattern) {
+                // Generate sample on-the-fly from pattern for better distribution
+                const hand = generateRandomHandFromPattern(p.rangePattern, usedCards);
+                if (!hand) {
+                  validSample = false;
+                  break;
+                }
+                baseHand = [...hand];
+              } else if (p.isRange && p.rangeHands) {
+                // Fallback to pre-sampled hands if no pattern
                 const hand = getRandomHandFromRange(p.rangeHands, usedCards);
                 if (!hand) {
                   validSample = false;
@@ -390,7 +403,7 @@ export function EquityCalculator() {
           }
           
           // Update progress after each batch
-          const progressPercent = (batchEnd / NUM_SAMPLES) * 100;
+          const progressPercent = Math.min((totalSamples / TARGET_SAMPLES) * 100, 100);
           setProgress(progressPercent);
           
           if (totalSamples > 0) {
@@ -412,7 +425,8 @@ export function EquityCalculator() {
         }
         
         const elapsed = performance.now() - start;
-        console.log(`Range calc: ${elapsed.toFixed(0)}ms for ${totalSamples} trials`);
+        const successRate = ((totalSamples / attempts) * 100).toFixed(1);
+        console.log(`Range calc: ${elapsed.toFixed(0)}ms for ${totalSamples} trials (${attempts} attempts, ${successRate}% success rate)`);
         setCalcTime(elapsed);
         setIsCached(false);
         
@@ -513,7 +527,7 @@ export function EquityCalculator() {
               key={`board-${resetKey}`}
               value={boardInput}
               onChange={(e) => handleBoardChange(e.target.value)}
-              placeholder="Th5d7c"
+              placeholder="e.g. AsKd5c"
               className="font-mono max-w-xs"
               disabled={isCalculating}
               data-testid="input-board"

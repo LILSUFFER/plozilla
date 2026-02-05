@@ -92,6 +92,7 @@ export interface PlayerInput {
   input: string;
   isRange?: boolean;
   rangeHands?: Card[][];
+  rangePattern?: string;
   comboCount?: number;
 }
 
