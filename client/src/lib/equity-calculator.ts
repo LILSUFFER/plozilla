@@ -74,7 +74,7 @@ export function evaluateOmahaHand(holeCards: Card[], boardCards: Card[]): HandRe
       const hand = [...hole2, ...board3];
       try {
         const result = evaluateHand(hand);
-        if (!bestResult || result.handRank < bestResult.handRank) {
+        if (!bestResult || result.handRank > bestResult.handRank) {
           bestResult = result;
         }
       } catch {
@@ -172,7 +172,7 @@ export function calculateEquity(
     const validResults = playerResults.filter(p => p.result !== null);
     if (validResults.length === 0) continue;
     
-    const bestRank = Math.min(...validResults.map(p => p.result!.handRank));
+    const bestRank = Math.max(...validResults.map(p => p.result!.handRank));
     const winners = validResults.filter(p => p.result!.handRank === bestRank);
     
     for (const player of validPlayers) {
