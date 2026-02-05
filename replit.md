@@ -46,9 +46,10 @@ A browser-based 5-Card Omaha equity calculator similar to ProPokerTools Oracle. 
   - Flop: ~741 runouts in ~6ms
   - Turn/River: few dozen runouts in <1ms
 - WASM optimizations:
-  - Sorting-based hand evaluation (no loops over 13 ranks)
+  - Correct Bose-Nelson 5-element sorting network for combinatorial indexing
   - Global static arrays to avoid allocations in hot loops
   - @inline decorators on critical functions
+- **Fixed WASM sorting network bug** (Feb 2026): The getIdx function's sorting network was incorrect (11 comparisons, produced unsorted output for certain inputs). Replaced with correct Bose-Nelson network (9 comparisons). This was causing wrong equity calculations for specific hands.
 - Results match ProPokerTools Oracle exactly (52.128% vs 52.128%)
 - UI shows "X runouts (exact)" for all calculations
 - Added visible timing display showing calculation time

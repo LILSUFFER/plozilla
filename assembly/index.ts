@@ -35,18 +35,16 @@ export function isTableLoaded(): bool { return tableLoaded; }
 
 @inline function getIdx(c0: i32, c1: i32, c2: i32, c3: i32, c4: i32): i32 {
   let a: i32 = c0, b: i32 = c1, c: i32 = c2, d: i32 = c3, e: i32 = c4, t: i32;
-  // Sorting network for 5 elements (optimal comparisons)
-  if (a > b) { t = a; a = b; b = t; }
-  if (c > d) { t = c; c = d; d = t; }
-  if (a > c) { t = a; a = c; c = t; }
-  if (b > d) { t = b; b = d; d = t; }
-  if (b > c) { t = b; b = c; c = t; }
-  if (a > b) { t = a; a = b; b = t; }
-  if (c > d) { t = c; c = d; d = t; }
-  if (d > e) { t = d; d = e; e = t; }
-  if (c > d) { t = c; c = d; d = t; }
-  if (b > c) { t = b; b = c; c = t; }
-  if (c > d) { t = c; c = d; d = t; }
+  // Correct Bose-Nelson sorting network for 5 elements (9 comparisons)
+  if (a > b) { t = a; a = b; b = t; }  // (0,1)
+  if (d > e) { t = d; d = e; e = t; }  // (3,4)
+  if (c > e) { t = c; c = e; e = t; }  // (2,4)
+  if (c > d) { t = c; c = d; d = t; }  // (2,3)
+  if (a > d) { t = a; a = d; d = t; }  // (0,3)
+  if (a > c) { t = a; a = c; c = t; }  // (0,2)
+  if (b > e) { t = b; b = e; e = t; }  // (1,4)
+  if (b > d) { t = b; b = d; d = t; }  // (1,3)
+  if (b > c) { t = b; b = c; c = t; }  // (1,2)
   return unchecked(BINOMIAL[a*6+1]) + unchecked(BINOMIAL[b*6+2]) + unchecked(BINOMIAL[c*6+3]) + unchecked(BINOMIAL[d*6+4]) + unchecked(BINOMIAL[e*6+5]);
 }
 
