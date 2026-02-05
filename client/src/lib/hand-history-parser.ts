@@ -44,11 +44,53 @@ function parseCard(cardStr: string): Card | null {
 
 function parseCards(cardsStr: string): Card[] {
   const cards: Card[] = [];
-  const parts = cardsStr.trim().split(/\s+/);
+  const trimmed = cardsStr.trim();
+  
+  // First try splitting by whitespace
+  const parts = trimmed.split(/\s+/);
   
   for (const part of parts) {
-    const card = parseCard(part);
-    if (card) cards.push(card);
+    // If part is longer than 3 chars, it might be concatenated cards (e.g., "AsKdQsJhTh")
+    if (part.length > 3) {
+      // Try to extract cards from concatenated string
+      const extracted = extractConcatenatedCards(part);
+      cards.push(...extracted);
+    } else {
+      const card = parseCard(part);
+      if (card) cards.push(card);
+    }
+  }
+  
+  return cards;
+}
+
+function extractConcatenatedCards(str: string): Card[] {
+  const cards: Card[] = [];
+  let i = 0;
+  
+  while (i < str.length) {
+    // Check for "10x" format (3 chars)
+    if (i + 2 < str.length && str.substring(i, i + 2) === '10') {
+      const card = parseCard(str.substring(i, i + 3));
+      if (card) {
+        cards.push(card);
+        i += 3;
+        continue;
+      }
+    }
+    
+    // Standard 2-char card format
+    if (i + 1 < str.length) {
+      const card = parseCard(str.substring(i, i + 2));
+      if (card) {
+        cards.push(card);
+        i += 2;
+        continue;
+      }
+    }
+    
+    // Skip unrecognized character
+    i++;
   }
   
   return cards;
@@ -69,11 +111,12 @@ export function parseHandHistory(text: string): ParsedHandHistory | null {
     result.heroHand = parseCards(heroMatch[1]);
   }
   
-  const showdownMatches = Array.from(text.matchAll(/(\w+): shows \[([^\]]+)\]/g));
+  // Match "shows" or "showed" with various player name formats
+  const showdownMatches = Array.from(text.matchAll(/([^\n:]+): (?:shows?|showed?) \[([^\]]+)\]/gi));
   for (const match of showdownMatches) {
-    const playerName = match[1];
+    const playerName = match[1].trim();
     const hand = parseCards(match[2]);
-    if (hand.length === 5) {
+    if (hand.length === 5 && playerName.toLowerCase() !== 'hero') {
       result.players.push({ name: playerName, hand, isHero: false });
     }
   }

@@ -749,6 +749,7 @@ export function EquityCalculator() {
                 variant="outline" 
                 onClick={() => setPasteDialogOpen(false)}
                 className="w-full"
+                data-testid="button-paste-dialog-close"
               >
                 Закрыть
               </Button>
