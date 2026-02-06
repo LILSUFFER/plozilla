@@ -28,7 +28,8 @@ function cardIndexToCard(idx: number) {
 }
 
 function cardIndicesToNotation(cards: number[]): string {
-  return cards.map(c => RANKS_DECODE[c >> 2] + SUITS_DECODE[c & 3]).join('');
+  const sorted = [...cards].sort((a, b) => (b >> 2) - (a >> 2));
+  return sorted.map(c => RANKS_DECODE[c >> 2] + SUITS_DECODE[c & 3]).join('');
 }
 
 interface ApiHand {
