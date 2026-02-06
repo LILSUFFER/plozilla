@@ -13,7 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useTranslation } from '@/lib/i18n';
 import { Link, useLocation } from 'wouter';
 import { CardChips } from '@/components/CardChip';
-import { generateRankedHands, type RankedHand } from '@/lib/hand-rankings';
+import { generateRankedHandsAsync, getCachedRankedHands, type RankedHand, type RankingsProgress } from '@/lib/hand-rankings';
 import { parseRankingsSearch, matchesHandGroup } from '@/lib/rankings-search';
 
 const ROW_HEIGHT = 44;
@@ -26,8 +26,25 @@ export default function RankingsPage() {
   const [searchInput, setSearchInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const hands = useMemo(() => generateRankedHands(), []);
+  const [hands, setHands] = useState<RankedHand[]>(() => getCachedRankedHands() || []);
+  const [progress, setProgress] = useState<RankingsProgress | null>(null);
   const ready = hands.length > 0;
+
+  useEffect(() => {
+    if (hands.length > 0) return;
+    let cancelled = false;
+
+    generateRankedHandsAsync((p) => {
+      if (!cancelled) setProgress(p);
+    }).then((result) => {
+      if (!cancelled) {
+        setHands(result);
+        setProgress(null);
+      }
+    });
+
+    return () => { cancelled = true; };
+  }, []);
 
   const parsed = useMemo(() => parseRankingsSearch(searchInput), [searchInput]);
   const isSearchActive = parsed !== null;
@@ -92,6 +109,10 @@ export default function RankingsPage() {
     { path: '/app/learn', label: t('navLearn'), icon: BookOpen },
   ];
 
+  const progressPercent = progress?.current && progress?.total
+    ? Math.round((progress.current / progress.total) * 100)
+    : 0;
+
   return (
     <div className="h-screen bg-background flex flex-col">
       <header className="border-b bg-card sticky top-0 z-50">
@@ -146,7 +167,7 @@ export default function RankingsPage() {
             <Trophy className="w-5 h-5" />
             {t('rankingsTitle')}
           </h2>
-          <p className="text-sm text-muted-foreground mt-1">{t('rankingsDesc').replace('{n}', totalAll.toLocaleString())}</p>
+          <p className="text-sm text-muted-foreground mt-1">{t('rankingsDesc').replace('{n}', totalAll > 0 ? totalAll.toLocaleString() : '12,194')}</p>
         </div>
 
         <div className="flex items-start gap-2 p-3 rounded-md bg-muted/50 text-sm text-muted-foreground mb-3">
@@ -163,6 +184,7 @@ export default function RankingsPage() {
               placeholder={t('rankingsSearchPlaceholder')}
               className="pl-9 pr-9"
               data-testid="input-search-rankings"
+              disabled={!ready}
             />
             {searchInput && (
               <Button
@@ -185,7 +207,7 @@ export default function RankingsPage() {
                 </span>
               </>
             )}
-            {!isSearchActive && (
+            {!isSearchActive && ready && (
               <span className="text-muted-foreground">
                 {t('rankingsTotal')}: <span className="font-semibold text-foreground">{totalAll.toLocaleString()}</span>
               </span>
@@ -195,9 +217,27 @@ export default function RankingsPage() {
       </div>
 
       {!ready ? (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-6 h-6 animate-spin text-primary mr-2" />
-          <span className="text-muted-foreground">{t('rankingsGenerating')}</span>
+        <div className="flex-1 flex flex-col items-center justify-center gap-4 px-4" data-testid="rankings-loading">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          <div className="text-center">
+            <p className="text-muted-foreground font-medium">
+              {progress?.stage === 'loading' ? t('rankingsLoadingWasm') : t('rankingsComputing')}
+            </p>
+            {progress?.stage === 'computing' && progress.current && progress.total && (
+              <div className="mt-3 w-64 mx-auto">
+                <div className="h-2 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-primary rounded-full transition-all duration-300"
+                    style={{ width: `${progressPercent}%` }}
+                    data-testid="progress-bar"
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground mt-1" data-testid="progress-text">
+                  {progress.current.toLocaleString()} / {progress.total.toLocaleString()} ({progressPercent}%)
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       ) : (
         <VirtualTable
@@ -237,10 +277,11 @@ function VirtualTable({
   return (
     <div className="flex-1 min-h-0 container mx-auto px-4 pb-4 flex flex-col">
       <div className="border rounded-md flex flex-col flex-1 min-h-0">
-        <div className="grid grid-cols-[4rem_1fr_3.5rem_4rem_4rem] text-xs font-medium text-muted-foreground border-b bg-muted/30 shrink-0">
+        <div className="grid grid-cols-[3.5rem_1fr_3rem_3.5rem_3.5rem_3.5rem] text-xs font-medium text-muted-foreground border-b bg-muted/30 shrink-0">
           <div className="px-2 py-2 text-center">{t('rankingsRank')}</div>
           <div className="px-2 py-2">{t('rankingsHand')}</div>
           <div className="px-2 py-2 text-center">{t('rankingsType')}</div>
+          <div className="px-2 py-2 text-center">{t('rankingsEquity')}</div>
           <div className="px-2 py-2 text-center">{t('rankingsCombos')}</div>
           <div className="px-2 py-2 text-right">{t('rankingsPercentile')}</div>
         </div>
@@ -253,11 +294,12 @@ function VirtualTable({
               const { hand, originalIndex } = items[virtualRow.index];
               const rank = originalIndex + 1;
               const percentile = hand.percentile.toFixed(1);
+              const equity = hand.equity.toFixed(1);
               return (
                 <div
                   key={virtualRow.key}
                   data-testid={`ranking-row-${rank}`}
-                  className="grid grid-cols-[4rem_1fr_3.5rem_4rem_4rem] items-center border-b last:border-b-0 text-sm"
+                  className="grid grid-cols-[3.5rem_1fr_3rem_3.5rem_3.5rem_3.5rem] items-center border-b last:border-b-0 text-sm"
                   style={{
                     position: 'absolute',
                     top: 0,
@@ -280,6 +322,9 @@ function VirtualTable({
                     >
                       {hand.suitType === 'ds' ? t('rankingsDS') : t('rankingsSS')}
                     </Badge>
+                  </div>
+                  <div className="px-2 text-center font-mono text-xs" data-testid={`equity-${rank}`}>
+                    {equity}
                   </div>
                   <div className="px-2 text-center font-mono text-xs">
                     {hand.combos}

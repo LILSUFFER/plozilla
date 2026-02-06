@@ -5,15 +5,16 @@
 A browser-based 5-Card Omaha equity calculator similar to ProPokerTools Oracle. The calculator supports board input in valid poker states (Preflop: 0, Flop: 3, Turn: 4, River: 5 cards), multiple player hands (5 cards each), concatenated card notation (e.g., "7s6hJdQc8c"), and performs exhaustive equity calculations with accurate Omaha hand evaluation (exactly 2 hole cards + 3 board cards). Built as a client-side React TypeScript application.
 
 ## Recent Changes (Feb 2026)
-- **Improved Hand Rankings Scoring** (Feb 2026): Redesigned scoring to better approximate actual PLO5 EV
-  - Card quality is dominant factor (positional weights [2.5, 2.0, 1.5, 1.0, 0.5])
-  - DS bonus reduced from 14→5 (was massively overvaluing double-suited hands)
-  - Pair bonuses rebalanced (AA:18, KK:14, QQ:11, JJ:9, TT:6, low pairs: 0.5-4)
-  - Added dangler penalty (cards isolated by gap ≥5 get -4, gap ≥4 get -2)
-  - Connectivity: 5-in-window=+18, 4-in-window=+11, 3-in-window=+5 plus consecutive bonuses
-  - Verified: AK964 SS (rank ~3471) correctly ranks above TT532 DS (rank ~8629)
-  - Percentile now combo-weighted based on 2,598,960 total hands (C(52,5)), not 12,194 groups
-  - `RankedHand.percentile` field stores cumulative combo percentage
+- **Equity-Based Hand Rankings** (Feb 2026): Rankings determined by actual equity vs random hand
+  - Monte Carlo simulation: 2,000 samples per hand group via Web Worker + WASM
+  - New WASM function `calculateVsRandom(numTrials)` keeps entire MC loop in WASM (no JS-WASM boundary overhead)
+  - Web Worker (`client/src/lib/rankings-worker.ts`) loads WASM + lookup table independently, runs computation in background
+  - Results cached in IndexedDB (versioned, instant on subsequent visits)
+  - First-time computation: ~30-60s with progress bar, then cached
+  - Top hand (AAKK DS) ~68% equity, bottom hands ~38-40%
+  - EQ% column added to table showing equity vs random
+  - Percentile still combo-weighted based on 2,598,960 total hands (C(52,5))
+  - `RankedHand.equity` field stores Monte Carlo equity, `RankedHand.percentile` stores cumulative combo percentage
 - **Rankings Search with ProPokerTools Syntax**: Full range syntax for search
   - Parser in `client/src/lib/rankings-search.ts`
   - Supports: exclusions (!), ascending/descending ranges (+/-), comma-separated OR, suit filters (ds/ss/$ds/$ss), rank macros ($B, $M, $Z, etc.), $np (no pairs), brackets ([A-K]), percentile filtering

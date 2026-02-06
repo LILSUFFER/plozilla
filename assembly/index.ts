@@ -297,3 +297,48 @@ export function getMaxC0(): i32 {
   if (cn === 5) return deckLen - 4;
   return 0;
 }
+
+const villainHand = new StaticArray<i32>(5);
+
+export function calculateVsRandom(numTrials: i32): i32 {
+  unchecked(wins[0] = 0);
+  unchecked(ties[0] = 0);
+
+  for (let t: i32 = 0; t < numTrials; t++) {
+    for (let i: i32 = 0; i < 10; i++) {
+      const j: i32 = i + <i32>(random() % <u32>(deckLen - i));
+      const tmp: i32 = unchecked(deck[i]);
+      unchecked(deck[i] = deck[j]);
+      unchecked(deck[j] = tmp);
+    }
+
+    unchecked(villainHand[0] = deck[0]);
+    unchecked(villainHand[1] = deck[1]);
+    unchecked(villainHand[2] = deck[2]);
+    unchecked(villainHand[3] = deck[3]);
+    unchecked(villainHand[4] = deck[4]);
+
+    const bd0: i32 = unchecked(deck[5]);
+    const bd1: i32 = unchecked(deck[6]);
+    const bd2: i32 = unchecked(deck[7]);
+    const bd3: i32 = unchecked(deck[8]);
+    const bd4: i32 = unchecked(deck[9]);
+
+    const heroScore: i32 = evalPlayer(0, bd0, bd1, bd2, bd3, bd4);
+
+    let vBest: i32 = 0;
+    for (let hi: i32 = 0; hi < 10; hi++) {
+      const vh0: i32 = unchecked(villainHand[unchecked(H2_0[hi])]);
+      const vh1: i32 = unchecked(villainHand[unchecked(H2_1[hi])]);
+      for (let bi: i32 = 0; bi < 10; bi++) {
+        const sc: i32 = lookup(vh0, vh1, unchecked(bCards[unchecked(B3_0[bi])]), unchecked(bCards[unchecked(B3_1[bi])]), unchecked(bCards[unchecked(B3_2[bi])]));
+        if (sc > vBest) vBest = sc;
+      }
+    }
+
+    if (heroScore > vBest) unchecked(wins[0] = wins[0] + 1);
+    else if (heroScore === vBest) unchecked(ties[0] = ties[0] + 1);
+  }
+
+  return numTrials;
+}

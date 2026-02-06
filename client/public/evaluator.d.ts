@@ -141,3 +141,9 @@ export declare function calculateExhaustiveRange(startC0: number, endC0: number)
  * @returns `i32`
  */
 export declare function getMaxC0(): number;
+/**
+ * assembly/index/calculateVsRandom
+ * @param numTrials `i32`
+ * @returns `i32`
+ */
+export declare function calculateVsRandom(numTrials: number): number;
