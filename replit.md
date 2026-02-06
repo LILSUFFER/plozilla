@@ -5,17 +5,17 @@
 A browser-based 5-Card Omaha equity calculator similar to ProPokerTools Oracle. The calculator supports board input in valid poker states (Preflop: 0, Flop: 3, Turn: 4, River: 5 cards), multiple player hands (5 cards each), concatenated card notation (e.g., "7s6hJdQc8c"), and performs exhaustive equity calculations with accurate Omaha hand evaluation (exactly 2 hole cards + 3 board cards). Built as a client-side React TypeScript application.
 
 ## Recent Changes (Feb 2026)
-- **Server-Side Hand Rankings** (Feb 2026): All 2,598,960 hands pre-computed and stored in PostgreSQL
-  - Every C(52,5) hand computed individually, 25 MC trials each via server-side WASM
-  - One-time seed runs automatically on first server startup (~8.5 min), then stored permanently in DB
-  - `server/rankings-cache.ts`: loads WASM in Node.js, computes all hands as async background task, yields to event loop every 500 hands so server stays responsive during seed
-  - Data stored as BYTEA blobs in `hand_rankings_data` table: cards (~13MB), equities (~10MB), sort_order (~10MB)
-  - On server restart, data loads from DB into memory in <1 second (no re-computation)
-  - API: `/api/rankings` (paginated with search), `/api/rankings/status` (ready/seeding progress)
-  - Frontend shows progress bar during initial seed, auto-polls every 3s, auto-transitions when ready
-  - Virtual scroll display with on-demand page fetching (200 items per page)
-  - Each hand shows specific cards with suits, equity %, and percentile rank
-  - Search: ProPokerTools syntax + percentile filtering, server-side filtering with result caching (max 200 entries)
+- **Canonical Hand Rankings v4** (Feb 2026): ProPokerTools-style ranking with suit canonicalization
+  - Suit canonicalization reduces 2,598,960 hands to 134,459 canonical forms (19.3x reduction)
+  - Algorithm: for each hand, try all 24 suit permutations, pick lexicographically smallest sorted card set
+  - 10,000 Monte Carlo trials per canonical hand (~2.8 hours one-time computation)
+  - **Resumable seed**: individual rows in `canonical_hand_rankings` PostgreSQL table, survives server restarts
+  - Each row stores: hand_key (canonical string), card0-4, equity, combo_count, version
+  - On restart: checks how many hands are already computed, continues from where it left off
+  - Server stays responsive during seed (yields to event loop after each hand)
+  - API: `/api/rankings` (paginated with search), `/api/rankings/status`, `/api/rankings/lookup`
+  - Frontend shows 134K canonical hands with combo count column
+  - Each canonical hand shows: rank, cards (canonical suits), combos (4-24), equity %, percentile
 - **Rankings Search with ProPokerTools Syntax**: Full range syntax for search
   - Parser in `client/src/lib/rankings-search.ts`
   - Supports: exclusions (!), ascending/descending ranges (+/-), comma-separated OR, suit filters (ds/ss/$ds/$ss), rank macros ($B, $M, $Z, etc.), $np (no pairs), brackets ([A-K]), percentile filtering

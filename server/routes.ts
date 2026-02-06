@@ -7,9 +7,12 @@ import {
   isSeeding,
   getSeedProgress,
   getRankingsTotal,
+  getTotalCombos,
   filterRankings,
   getRankingsPage,
   seedRankingsInProcess,
+  canonicalKey,
+  lookupByCanonicalKey,
 } from "./rankings-cache";
 
 export async function registerRoutes(
@@ -22,9 +25,9 @@ export async function registerRoutes(
     if (ok) {
       console.log('Rankings data ready to serve');
     } else {
-      console.log('Rankings not in DB - will start seed after server is ready...');
+      console.log('Rankings not in DB or incomplete - will start seed after server is ready...');
       setTimeout(() => {
-        console.log('Starting in-process seed...');
+        console.log('Starting canonical rankings seed...');
         seedRankingsInProcess();
       }, 5000);
     }
@@ -58,9 +61,29 @@ export async function registerRoutes(
     res.json({
       ready: isRankingsReady(),
       total: getRankingsTotal(),
+      totalCombos: getTotalCombos(),
       seeding: isSeeding(),
       seedProgress: getSeedProgress(),
     });
+  });
+
+  app.get('/api/rankings/lookup', (req, res) => {
+    const cards = (req.query.cards as string) || '';
+    const cardNums = cards.split(',').map(Number).filter(n => !isNaN(n) && n >= 0 && n < 52);
+    if (cardNums.length !== 5) {
+      return res.status(400).json({ error: 'Provide exactly 5 card indices (0-51) as ?cards=c0,c1,c2,c3,c4' });
+    }
+
+    if (!isRankingsReady()) {
+      return res.json({ ready: false, seeding: isSeeding(), seedProgress: getSeedProgress() });
+    }
+
+    const key = canonicalKey(cardNums[0], cardNums[1], cardNums[2], cardNums[3], cardNums[4]);
+    const hand = lookupByCanonicalKey(key);
+    if (!hand) {
+      return res.status(404).json({ error: 'Hand not found', canonicalKey: key });
+    }
+    return res.json({ ready: true, canonicalKey: key, hand, totalHands: getRankingsTotal() });
   });
 
   return httpServer;

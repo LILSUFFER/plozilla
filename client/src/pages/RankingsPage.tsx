@@ -31,6 +31,7 @@ interface ApiHand {
   rank: number;
   cards: number[];
   equity: number;
+  comboCount: number;
 }
 
 interface ApiResponse {
@@ -149,7 +150,7 @@ export default function RankingsPage() {
             {t('rankingsTitle')}
           </h2>
           <p className="text-sm text-muted-foreground mt-1">
-            {t('rankingsDesc').replace('{n}', (2598960).toLocaleString())}
+            {t('rankingsDesc')}
           </p>
         </div>
 
@@ -289,6 +290,7 @@ function RankingsTable({ search, t }: { search: string; t: (key: any) => string 
           <>
             <Loader2 className="w-8 h-8 animate-spin text-primary" />
             <p className="text-foreground font-medium">{t('rankingsGenerating')}</p>
+            <p className="text-sm text-muted-foreground">{t('rankingsCanonicalNote')}</p>
             <div className="w-64 max-w-full">
               <div className="h-2 rounded-full bg-muted overflow-hidden">
                 <div
@@ -339,15 +341,16 @@ function RankingsTable({ search, t }: { search: string; t: (key: any) => string 
         )}
         {!search.trim() && (
           <span className="text-muted-foreground">
-            {t('rankingsTotal')}: <span className="font-semibold text-foreground">{totalHands.toLocaleString()}</span>
+            {t('rankingsCanonicalTotal').replace('{n}', totalHands.toLocaleString())}
           </span>
         )}
       </div>
 
       <div className="border rounded-md flex flex-col flex-1 min-h-0">
-        <div className="grid grid-cols-[3.5rem_1fr_3.5rem_4rem] text-xs font-medium text-muted-foreground border-b bg-muted/30 shrink-0">
+        <div className="grid grid-cols-[3.5rem_1fr_3.5rem_3.5rem_3.5rem] text-xs font-medium text-muted-foreground border-b bg-muted/30 shrink-0">
           <div className="px-2 py-2 text-center">{t('rankingsRank')}</div>
           <div className="px-2 py-2">{t('rankingsHand')}</div>
+          <div className="px-2 py-2 text-center">{t('rankingsCombos')}</div>
           <div className="px-2 py-2 text-center">{t('rankingsEquity')}</div>
           <div className="px-2 py-2 text-right">{t('rankingsPercentile')}</div>
         </div>
@@ -363,7 +366,7 @@ function RankingsTable({ search, t }: { search: string; t: (key: any) => string 
               return (
                 <div
                   key={virtualRow.key}
-                  className="grid grid-cols-[3.5rem_1fr_3.5rem_4rem] items-center border-b last:border-b-0 text-sm"
+                  className="grid grid-cols-[3.5rem_1fr_3.5rem_3.5rem_3.5rem] items-center border-b last:border-b-0 text-sm"
                   style={{
                     position: 'absolute',
                     top: 0,
@@ -382,11 +385,14 @@ function RankingsTable({ search, t }: { search: string; t: (key: any) => string 
                       <div className="px-2">
                         <CardChips cards={hand.cards.map(cardIndexToCard)} size="sm" />
                       </div>
+                      <div className="px-2 text-center font-mono text-xs text-muted-foreground" data-testid={`combos-${hand.rank}`}>
+                        {hand.comboCount}
+                      </div>
                       <div className="px-2 text-center font-mono text-xs" data-testid={`equity-${hand.rank}`}>
                         {hand.equity.toFixed(1)}
                       </div>
                       <div className="px-2 text-right font-mono text-xs">
-                        {((hand.rank / 2598960) * 100).toFixed(2)}
+                        {((hand.rank / totalHands) * 100).toFixed(2)}
                       </div>
                     </>
                   ) : (
@@ -396,6 +402,9 @@ function RankingsTable({ search, t }: { search: string; t: (key: any) => string 
                       </div>
                       <div className="px-2">
                         <div className="h-5 w-32 bg-muted rounded animate-pulse" />
+                      </div>
+                      <div className="px-2 text-center">
+                        <div className="h-3 w-6 bg-muted rounded animate-pulse mx-auto" />
                       </div>
                       <div className="px-2 text-center">
                         <div className="h-3 w-8 bg-muted rounded animate-pulse mx-auto" />

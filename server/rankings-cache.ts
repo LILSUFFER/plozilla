@@ -2,23 +2,72 @@ import pg from 'pg';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const RANKINGS_VERSION = 3;
-const TOTAL_HANDS = 2598960;
-const TRIALS_PER_HAND = 25;
+const RANKINGS_VERSION = 4;
+const TOTAL_HANDS_ALL = 2598960;
+const TRIALS_PER_HAND = 10000;
 const RANKS_DECODE = '23456789TJQKA';
 const TABLE_SIZE = 2598960;
 
+const SUIT_PERMS: number[][] = [];
+for (let a = 0; a < 4; a++)
+  for (let b = 0; b < 4; b++) {
+    if (b === a) continue;
+    for (let c = 0; c < 4; c++) {
+      if (c === a || c === b) continue;
+      for (let d = 0; d < 4; d++) {
+        if (d === a || d === b || d === c) continue;
+        SUIT_PERMS.push([a, b, c, d]);
+      }
+    }
+  }
+
+function canonicalKey(c0: number, c1: number, c2: number, c3: number, c4: number): string {
+  let best0 = 99, best1 = 99, best2 = 99, best3 = 99, best4 = 99;
+  for (let p = 0; p < 24; p++) {
+    const perm = SUIT_PERMS[p];
+    let t0 = (c0 >> 2) * 4 + perm[c0 & 3];
+    let t1 = (c1 >> 2) * 4 + perm[c1 & 3];
+    let t2 = (c2 >> 2) * 4 + perm[c2 & 3];
+    let t3 = (c3 >> 2) * 4 + perm[c3 & 3];
+    let t4 = (c4 >> 2) * 4 + perm[c4 & 3];
+    if (t0 > t1) { const tmp = t0; t0 = t1; t1 = tmp; }
+    if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+    if (t2 > t3) { const tmp = t2; t2 = t3; t3 = tmp; }
+    if (t3 > t4) { const tmp = t3; t3 = t4; t4 = tmp; }
+    if (t0 > t1) { const tmp = t0; t0 = t1; t1 = tmp; }
+    if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+    if (t2 > t3) { const tmp = t2; t2 = t3; t3 = tmp; }
+    if (t0 > t1) { const tmp = t0; t0 = t1; t1 = tmp; }
+    if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+    if (t0 > t1) { const tmp = t0; t0 = t1; t1 = tmp; }
+    if (t0 < best0 || (t0 === best0 && (t1 < best1 || (t1 === best1 && (t2 < best2 || (t2 === best2 && (t3 < best3 || (t3 === best3 && t4 < best4)))))))) {
+      best0 = t0; best1 = t1; best2 = t2; best3 = t3; best4 = t4;
+    }
+  }
+  return `${best0},${best1},${best2},${best3},${best4}`;
+}
+
+interface CanonicalHand {
+  key: string;
+  cards: number[];
+  comboCount: number;
+  equity: number;
+}
+
 interface RankingsData {
-  cards: Uint8Array;
-  equities: Float32Array;
-  sortOrder: Uint32Array;
-  totalHands: number;
+  hands: CanonicalHand[];
+  sortOrder: number[];
+  idxToRank: Map<number, number>;
+  keyToIdx: Map<string, number>;
+  totalCanonical: number;
+  totalCombos: number;
 }
 
 export interface HandResult {
   rank: number;
   cards: number[];
   equity: number;
+  comboCount: number;
 }
 
 interface WasmExports {
@@ -41,6 +90,8 @@ let cachedData: RankingsData | null = null;
 let loading = false;
 let seeding = false;
 let seedProgress = 0;
+let seedComputedCount = 0;
+let seedTotalCount = 0;
 
 const searchCache = new Map<string, number[]>();
 const MAX_SEARCH_CACHE = 200;
@@ -58,7 +109,49 @@ export function getSeedProgress(): number {
 }
 
 export function getRankingsTotal(): number {
-  return cachedData?.totalHands ?? 0;
+  return cachedData?.totalCanonical ?? 0;
+}
+
+export function getTotalCombos(): number {
+  return cachedData?.totalCombos ?? TOTAL_HANDS_ALL;
+}
+
+export function lookupByCanonicalKey(key: string): HandResult | null {
+  if (!cachedData) return null;
+  const idx = cachedData.keyToIdx.get(key);
+  if (idx === undefined) return null;
+  const rank = cachedData.idxToRank.get(idx);
+  if (rank === undefined) return null;
+  const h = cachedData.hands[idx];
+  return {
+    rank,
+    cards: [h.card0, h.card1, h.card2, h.card3, h.card4],
+    equity: h.equity,
+    comboCount: h.comboCount,
+  };
+}
+
+function enumerateCanonicalHands(): Map<string, { cards: number[]; count: number }> {
+  const canonMap = new Map<string, { cards: number[]; count: number }>();
+  for (let c0 = 0; c0 < 48; c0++) {
+    for (let c1 = c0 + 1; c1 < 49; c1++) {
+      for (let c2 = c1 + 1; c2 < 50; c2++) {
+        for (let c3 = c2 + 1; c3 < 51; c3++) {
+          for (let c4 = c3 + 1; c4 < 52; c4++) {
+            const key = canonicalKey(c0, c1, c2, c3, c4);
+            const entry = canonMap.get(key);
+            if (entry) {
+              entry.count++;
+            } else {
+              const parts = key.split(',').map(Number);
+              canonMap.set(key, { cards: parts, count: 1 });
+            }
+          }
+        }
+      }
+    }
+  }
+  return canonMap;
 }
 
 export async function loadRankingsFromDB(): Promise<boolean> {
@@ -70,55 +163,81 @@ export async function loadRankingsFromDB(): Promise<boolean> {
     const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 
     const tableCheck = await pool.query(
-      "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'hand_rankings_data')"
+      "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'canonical_hand_rankings')"
     );
     if (!tableCheck.rows[0]?.exists) {
-      console.log('Rankings table does not exist. Run seed-rankings.ts first.');
+      console.log('Canonical rankings table does not exist yet.');
       await pool.end();
       loading = false;
       return false;
     }
 
-    const result = await pool.query(
-      'SELECT key, data FROM hand_rankings_data WHERE version = $1',
+    const countResult = await pool.query(
+      'SELECT COUNT(*) FROM canonical_hand_rankings WHERE version = $1',
       [RANKINGS_VERSION]
     );
+    const dbCount = parseInt(countResult.rows[0].count, 10);
 
+    if (dbCount === 0) {
+      console.log('No canonical rankings data in DB.');
+      await pool.end();
+      loading = false;
+      return false;
+    }
+
+    console.log(`Loading ${dbCount.toLocaleString()} canonical hands from DB...`);
+    const startLoad = Date.now();
+
+    const result = await pool.query(
+      'SELECT hand_key, card0, card1, card2, card3, card4, equity, combo_count FROM canonical_hand_rankings WHERE version = $1',
+      [RANKINGS_VERSION]
+    );
     await pool.end();
 
-    if (result.rows.length < 3) {
-      console.log('Rankings data not found in database. Run seed-rankings.ts first.');
-      loading = false;
-      return false;
-    }
-
-    const blobs: Record<string, Buffer> = {};
+    const hands: CanonicalHand[] = [];
+    let totalCombos = 0;
     for (const row of result.rows) {
-      blobs[row.key] = row.data;
+      hands.push({
+        key: row.hand_key,
+        cards: [row.card0, row.card1, row.card2, row.card3, row.card4],
+        comboCount: row.combo_count,
+        equity: row.equity,
+      });
+      totalCombos += row.combo_count;
     }
 
-    if (!blobs.cards || !blobs.equities || !blobs.sort_order) {
-      console.log('Incomplete rankings data in database.');
+    const expectedCanonical = 134459;
+    if (hands.length < expectedCanonical) {
+      console.log(`Only ${hands.length}/${expectedCanonical} canonical hands computed. Seed incomplete.`);
       loading = false;
       return false;
     }
 
-    const cardsBuf = blobs.cards;
-    const equitiesBuf = blobs.equities;
-    const sortBuf = blobs.sort_order;
+    const sortOrder = new Array(hands.length);
+    for (let i = 0; i < hands.length; i++) sortOrder[i] = i;
+    sortOrder.sort((a: number, b: number) => hands[b].equity - hands[a].equity);
+
+    const idxToRank = new Map<number, number>();
+    for (let i = 0; i < sortOrder.length; i++) {
+      idxToRank.set(sortOrder[i], i + 1);
+    }
+
+    const keyToIdx = new Map<string, number>();
+    for (let i = 0; i < hands.length; i++) {
+      keyToIdx.set(hands[i].key, i);
+    }
 
     cachedData = {
-      cards: new Uint8Array(cardsBuf.buffer, cardsBuf.byteOffset, cardsBuf.byteLength),
-      equities: new Float32Array(
-        equitiesBuf.buffer.slice(equitiesBuf.byteOffset, equitiesBuf.byteOffset + equitiesBuf.byteLength)
-      ),
-      sortOrder: new Uint32Array(
-        sortBuf.buffer.slice(sortBuf.byteOffset, sortBuf.byteOffset + sortBuf.byteLength)
-      ),
-      totalHands: TOTAL_HANDS,
+      hands,
+      sortOrder,
+      idxToRank,
+      keyToIdx,
+      totalCanonical: hands.length,
+      totalCombos,
     };
 
-    console.log(`Rankings loaded: ${cachedData.totalHands.toLocaleString()} hands`);
+    const elapsed = ((Date.now() - startLoad) / 1000).toFixed(1);
+    console.log(`Rankings loaded: ${hands.length.toLocaleString()} canonical hands (${totalCombos.toLocaleString()} total combos) in ${elapsed}s`);
     loading = false;
     return true;
   } catch (err) {
@@ -162,19 +281,60 @@ export async function seedRankingsInProcess(): Promise<void> {
   seeding = true;
   seedProgress = 0;
 
-  console.log(`Starting in-process rankings seed: ${TOTAL_HANDS.toLocaleString()} hands, ${TRIALS_PER_HAND} trials each`);
+  console.log('Starting canonical rankings seed...');
   const startTime = Date.now();
 
   try {
     const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS hand_rankings_data (
-        key VARCHAR(64) PRIMARY KEY,
-        data BYTEA NOT NULL,
-        version INTEGER NOT NULL
+      CREATE TABLE IF NOT EXISTS canonical_hand_rankings (
+        hand_key VARCHAR(32) PRIMARY KEY,
+        card0 SMALLINT NOT NULL,
+        card1 SMALLINT NOT NULL,
+        card2 SMALLINT NOT NULL,
+        card3 SMALLINT NOT NULL,
+        card4 SMALLINT NOT NULL,
+        equity REAL NOT NULL,
+        combo_count INTEGER NOT NULL,
+        version INTEGER NOT NULL DEFAULT 4
       )
     `);
+
+    console.log('Enumerating canonical hands...');
+    const enumStart = Date.now();
+    const canonMap = enumerateCanonicalHands();
+    const enumElapsed = ((Date.now() - enumStart) / 1000).toFixed(1);
+    console.log(`Enumeration complete: ${canonMap.size.toLocaleString()} canonical hands in ${enumElapsed}s`);
+
+    seedTotalCount = canonMap.size;
+
+    const existingResult = await pool.query(
+      'SELECT hand_key FROM canonical_hand_rankings WHERE version = $1',
+      [RANKINGS_VERSION]
+    );
+    const existingKeys = new Set<string>(existingResult.rows.map((r: any) => r.hand_key));
+    console.log(`Already computed: ${existingKeys.size.toLocaleString()} / ${canonMap.size.toLocaleString()}`);
+
+    const toCompute: { key: string; cards: number[]; count: number }[] = [];
+    for (const [key, val] of canonMap) {
+      if (!existingKeys.has(key)) {
+        toCompute.push({ key, cards: val.cards, count: val.count });
+      }
+    }
+
+    seedComputedCount = existingKeys.size;
+    seedProgress = seedComputedCount / seedTotalCount;
+
+    if (toCompute.length === 0) {
+      console.log('All canonical hands already computed!');
+      await pool.end();
+      seeding = false;
+      await loadRankingsFromDB();
+      return;
+    }
+
+    console.log(`Computing ${toCompute.length.toLocaleString()} remaining hands with ${TRIALS_PER_HAND.toLocaleString()} MC trials each...`);
 
     const wasm = await loadWasmServer();
     console.log('WASM evaluator loaded for seed');
@@ -183,100 +343,74 @@ export async function seedRankingsInProcess(): Promise<void> {
     wasm.setPlayerLen(0, 5);
     wasm.setSeed(Date.now() & 0xffffffff);
 
-    const equities = new Float32Array(TOTAL_HANDS);
-    const cards = new Uint8Array(TOTAL_HANDS * 5);
-
-    let handIdx = 0;
+    const BATCH_SIZE = 100;
+    let batchValues: any[] = [];
+    let batchParams: string[] = [];
+    let paramIdx = 1;
     let lastLog = Date.now();
-    const CHUNK_SIZE = 500;
 
-    for (let c0 = 0; c0 < 48; c0++) {
-      for (let c1 = c0 + 1; c1 < 49; c1++) {
-        for (let c2 = c1 + 1; c2 < 50; c2++) {
-          for (let c3 = c2 + 1; c3 < 51; c3++) {
-            for (let c4 = c3 + 1; c4 < 52; c4++) {
-              const base = handIdx * 5;
-              cards[base] = c0;
-              cards[base + 1] = c1;
-              cards[base + 2] = c2;
-              cards[base + 3] = c3;
-              cards[base + 4] = c4;
+    for (let i = 0; i < toCompute.length; i++) {
+      const { key, cards, count } = toCompute[i];
 
-              wasm.setPlayerHand(0, 0, c0);
-              wasm.setPlayerHand(0, 1, c1);
-              wasm.setPlayerHand(0, 2, c2);
-              wasm.setPlayerHand(0, 3, c3);
-              wasm.setPlayerHand(0, 4, c4);
+      wasm.setPlayerHand(0, 0, cards[0]);
+      wasm.setPlayerHand(0, 1, cards[1]);
+      wasm.setPlayerHand(0, 2, cards[2]);
+      wasm.setPlayerHand(0, 3, cards[3]);
+      wasm.setPlayerHand(0, 4, cards[4]);
 
-              let usedLow = 0;
-              let usedHigh = 0;
-              if (c0 < 32) usedLow |= 1 << c0; else usedHigh |= 1 << (c0 - 32);
-              if (c1 < 32) usedLow |= 1 << c1; else usedHigh |= 1 << (c1 - 32);
-              if (c2 < 32) usedLow |= 1 << c2; else usedHigh |= 1 << (c2 - 32);
-              if (c3 < 32) usedLow |= 1 << c3; else usedHigh |= 1 << (c3 - 32);
-              if (c4 < 32) usedLow |= 1 << c4; else usedHigh |= 1 << (c4 - 32);
+      let usedLow = 0;
+      let usedHigh = 0;
+      for (const c of cards) {
+        if (c < 32) usedLow |= 1 << c; else usedHigh |= 1 << (c - 32);
+      }
+      wasm.buildDeck(usedLow, usedHigh);
+      wasm.calculateVsRandom(TRIALS_PER_HAND);
 
-              wasm.buildDeck(usedLow, usedHigh);
-              wasm.calculateVsRandom(TRIALS_PER_HAND);
+      const w = wasm.getWins(0);
+      const t = wasm.getTies(0);
+      const equity = (w + t / 2) / TRIALS_PER_HAND * 100;
 
-              const w = wasm.getWins(0);
-              const t = wasm.getTies(0);
-              equities[handIdx] = (w + t / 2) / TRIALS_PER_HAND * 100;
+      batchValues.push(key, cards[0], cards[1], cards[2], cards[3], cards[4], equity, count, RANKINGS_VERSION);
+      batchParams.push(`($${paramIdx}, $${paramIdx+1}, $${paramIdx+2}, $${paramIdx+3}, $${paramIdx+4}, $${paramIdx+5}, $${paramIdx+6}, $${paramIdx+7}, $${paramIdx+8})`);
+      paramIdx += 9;
 
-              handIdx++;
+      if (batchParams.length >= BATCH_SIZE || i === toCompute.length - 1) {
+        await pool.query(
+          `INSERT INTO canonical_hand_rankings (hand_key, card0, card1, card2, card3, card4, equity, combo_count, version)
+           VALUES ${batchParams.join(', ')}
+           ON CONFLICT (hand_key) DO UPDATE SET equity = EXCLUDED.equity, combo_count = EXCLUDED.combo_count, version = EXCLUDED.version`,
+          batchValues
+        );
+        batchValues = [];
+        batchParams = [];
+        paramIdx = 1;
+      }
 
-              if (handIdx % CHUNK_SIZE === 0) {
-                seedProgress = handIdx / TOTAL_HANDS;
-                await yieldToEventLoop();
-              }
-            }
-          }
-        }
+      seedComputedCount = existingKeys.size + i + 1;
+      seedProgress = seedComputedCount / seedTotalCount;
 
-        const now = Date.now();
-        if (now - lastLog > 10000) {
-          const pct = ((handIdx / TOTAL_HANDS) * 100).toFixed(1);
-          const elapsed = ((now - startTime) / 1000).toFixed(0);
-          console.log(`Seed progress: ${handIdx.toLocaleString()} / ${TOTAL_HANDS.toLocaleString()} (${pct}%) - ${elapsed}s elapsed`);
-          lastLog = now;
-        }
+      await yieldToEventLoop();
+
+      const now = Date.now();
+      if (now - lastLog > 15000) {
+        const pct = (seedProgress * 100).toFixed(1);
+        const elapsed = ((now - startTime) / 1000).toFixed(0);
+        const rate = (i + 1) / ((now - startTime) / 1000);
+        const remaining = ((toCompute.length - i - 1) / rate).toFixed(0);
+        console.log(`Seed progress: ${seedComputedCount.toLocaleString()} / ${seedTotalCount.toLocaleString()} (${pct}%) - ${elapsed}s elapsed, ~${remaining}s remaining`);
+        lastLog = now;
       }
     }
 
-    seedProgress = 0.95;
-    console.log(`Computation complete. ${handIdx.toLocaleString()} hands in ${((Date.now() - startTime) / 1000).toFixed(0)}s`);
-
-    console.log('Sorting by equity descending...');
-    const sortOrder = new Uint32Array(TOTAL_HANDS);
-    for (let i = 0; i < TOTAL_HANDS; i++) sortOrder[i] = i;
-    sortOrder.sort((a, b) => equities[b] - equities[a]);
-
-    seedProgress = 0.97;
-    console.log('Storing in database...');
-
-    await pool.query('DELETE FROM hand_rankings_data WHERE version = $1', [RANKINGS_VERSION]);
-
-    const cardsBuf = Buffer.from(cards.buffer, cards.byteOffset, cards.byteLength);
-    const equitiesBuf = Buffer.from(equities.buffer, equities.byteOffset, equities.byteLength);
-    const sortBuf = Buffer.from(sortOrder.buffer, sortOrder.byteOffset, sortOrder.byteLength);
-
-    await pool.query('INSERT INTO hand_rankings_data (key, data, version) VALUES ($1, $2, $3)', ['cards', cardsBuf, RANKINGS_VERSION]);
-    await pool.query('INSERT INTO hand_rankings_data (key, data, version) VALUES ($1, $2, $3)', ['equities', equitiesBuf, RANKINGS_VERSION]);
-    await pool.query('INSERT INTO hand_rankings_data (key, data, version) VALUES ($1, $2, $3)', ['sort_order', sortBuf, RANKINGS_VERSION]);
-
     await pool.end();
 
-    cachedData = {
-      cards,
-      equities,
-      sortOrder,
-      totalHands: TOTAL_HANDS,
-    };
-
-    seedProgress = 1;
-    seeding = false;
     const totalElapsed = ((Date.now() - startTime) / 1000).toFixed(0);
-    console.log(`Seed complete! Total time: ${totalElapsed}s. Rankings ready to serve.`);
+    console.log(`Seed complete! ${seedTotalCount.toLocaleString()} canonical hands in ${totalElapsed}s. Loading into memory...`);
+
+    seeding = false;
+    seedProgress = 1;
+    loading = false;
+    await loadRankingsFromDB();
   } catch (err) {
     console.error('In-process seed failed:', err);
     seeding = false;
@@ -285,17 +419,14 @@ export async function seedRankingsInProcess(): Promise<void> {
 }
 
 function getHandAtRank(rank: number): HandResult | null {
-  if (!cachedData || rank < 0 || rank >= cachedData.totalHands) return null;
-  const origIdx = cachedData.sortOrder[rank];
-  const base = origIdx * 5;
-  const cards: number[] = [];
-  for (let i = 0; i < 5; i++) {
-    cards.push(cachedData.cards[base + i]);
-  }
+  if (!cachedData || rank < 0 || rank >= cachedData.totalCanonical) return null;
+  const handIdx = cachedData.sortOrder[rank];
+  const hand = cachedData.hands[handIdx];
   return {
     rank: rank + 1,
-    cards,
-    equity: Math.round(cachedData.equities[origIdx] * 10) / 10,
+    cards: hand.cards,
+    equity: Math.round(hand.equity * 10) / 10,
+    comboCount: hand.comboCount,
   };
 }
 
@@ -318,7 +449,7 @@ export function getRankingsPage(
     return { hands, total };
   }
 
-  const total = cachedData.totalHands;
+  const total = cachedData.totalCanonical;
   const start = Math.max(0, offset);
   const end = Math.min(start + limit, total);
   const hands: HandResult[] = [];
@@ -678,21 +809,18 @@ export function filterRankings(searchQuery: string, offset: number, limit: numbe
     filteredRanks = [];
 
     if (parsed.type === 'percent') {
-      const startRank = Math.max(0, Math.floor(parsed.lo / 100 * cachedData.totalHands));
-      const endRank = Math.min(cachedData.totalHands, Math.ceil(parsed.hi / 100 * cachedData.totalHands));
+      const startRank = Math.max(0, Math.floor(parsed.lo / 100 * cachedData.totalCanonical));
+      const endRank = Math.min(cachedData.totalCanonical, Math.ceil(parsed.hi / 100 * cachedData.totalCanonical));
       for (let i = startRank; i < endRank; i++) filteredRanks.push(i);
     } else {
-      const cardsArr = cachedData.cards;
-      const sortArr = cachedData.sortOrder;
-      const total = cachedData.totalHands;
+      const { hands, sortOrder, totalCanonical } = cachedData;
 
-      for (let rank = 0; rank < total; rank++) {
-        const origIdx = sortArr[rank];
-        const base = origIdx * 5;
+      for (let rank = 0; rank < totalCanonical; rank++) {
+        const handIdx = sortOrder[rank];
+        const hand = hands[handIdx];
         const rankCounts: Record<string, number> = {};
         const sc = [0, 0, 0, 0];
-        for (let i = 0; i < 5; i++) {
-          const c = cardsArr[base + i];
+        for (const c of hand.cards) {
           const r = RANKS_DECODE[c >> 2];
           rankCounts[r] = (rankCounts[r] || 0) + 1;
           sc[c & 3]++;
@@ -718,3 +846,5 @@ export function filterRankings(searchQuery: string, offset: number, limit: numbe
 
   return getRankingsPage(offset, limit, filteredRanks);
 }
+
+export { canonicalKey };
