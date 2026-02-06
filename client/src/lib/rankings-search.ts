@@ -1,4 +1,4 @@
-import type { RankedHand } from './hand-rankings';
+import type { AllHandsRankings } from './hand-rankings';
 
 const RANKS = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'] as const;
 const RANK_ORDER: Record<string, number> = {
@@ -6,6 +6,7 @@ const RANK_ORDER: Record<string, number> = {
   '9': 9, '8': 8, '7': 7, '6': 6, '5': 5, '4': 4, '3': 3, '2': 2
 };
 const VALID_RANKS = new Set<string>(RANKS as unknown as string[]);
+const RANKS_DECODE = '23456789TJQKA';
 
 const RANK_MACROS: [RegExp, string][] = [
   [/\$B/gi, '[AKQJT]'],
@@ -239,28 +240,6 @@ function hasNoPairConstraint(pattern: string): boolean {
   return close !== -1;
 }
 
-function getNoPairRanks(pattern: string): Set<string> {
-  const result = new Set<string>();
-  let i = 0;
-  while (i < pattern.length) {
-    if (pattern[i] === '{') {
-      const close = pattern.indexOf('}', i);
-      if (close !== -1) {
-        for (let j = i + 1; j < close; j++) {
-          const ch = pattern[j].toUpperCase();
-          if (VALID_RANKS.has(ch)) result.add(ch);
-        }
-        i = close + 1;
-      } else {
-        i++;
-      }
-    } else {
-      i++;
-    }
-  }
-  return result;
-}
-
 function parseSinglePattern(
   pattern: string,
   suitFilter?: 'ds' | 'ss',
@@ -412,26 +391,26 @@ export function parseRankingsSearch(raw: string): SearchResult {
 }
 
 function matchesBranch(
-  hand: RankedHand,
-  handCounts: Record<string, number>,
+  rankCounts: Record<string, number>,
+  suitType: 'ds' | 'ss',
   branch: PatternBranch
 ): boolean {
-  if (branch.suitFilter && hand.suitType !== branch.suitFilter) return false;
+  if (branch.suitFilter && suitType !== branch.suitFilter) return false;
 
   if (branch.noPair) {
-    for (const v of Object.values(handCounts)) {
+    for (const v of Object.values(rankCounts)) {
       if (v >= 2) return false;
     }
   }
 
   for (const [rank, minCount] of Object.entries(branch.include)) {
-    if ((handCounts[rank] || 0) < minCount) return false;
+    if ((rankCounts[rank] || 0) < minCount) return false;
   }
 
   for (const excl of branch.excludes) {
     let matches = true;
     for (const [rank, minCount] of Object.entries(excl)) {
-      if ((handCounts[rank] || 0) < minCount) { matches = false; break; }
+      if ((rankCounts[rank] || 0) < minCount) { matches = false; break; }
     }
     if (matches) return false;
   }
@@ -439,26 +418,78 @@ function matchesBranch(
   return true;
 }
 
-export function matchesHandGroup(
-  hand: RankedHand,
+export function matchesHandByCards(
+  rankCounts: Record<string, number>,
+  suitType: 'ds' | 'ss',
+  percentile: number,
   search: SearchResult,
-  totalHands: number,
-  handIndex: number
 ): boolean {
   if (!search) return true;
 
   if (search.type === 'percent') {
-    return hand.percentile >= search.lo && hand.percentile <= search.hi;
-  }
-
-  const handCounts: Record<string, number> = {};
-  for (const card of hand.cards) {
-    handCounts[card.rank] = (handCounts[card.rank] || 0) + 1;
+    return percentile >= search.lo && percentile <= search.hi;
   }
 
   for (const branch of search.branches) {
-    if (matchesBranch(hand, handCounts, branch)) return true;
+    if (matchesBranch(rankCounts, suitType, branch)) return true;
   }
 
   return false;
+}
+
+const MAX_FILTER_RESULTS = 100000;
+
+export function filterAllHands(
+  data: AllHandsRankings,
+  search: SearchResult,
+): number[] {
+  if (!search) {
+    const limit = Math.min(MAX_FILTER_RESULTS, data.totalHands);
+    const result = new Array<number>(limit);
+    for (let i = 0; i < limit; i++) result[i] = i;
+    return result;
+  }
+
+  if (search.type === 'percent') {
+    const startRank = Math.max(0, Math.floor(search.lo / 100 * data.totalHands));
+    const endRank = Math.min(data.totalHands, Math.ceil(search.hi / 100 * data.totalHands));
+    const len = Math.min(endRank - startRank, MAX_FILTER_RESULTS);
+    const result = new Array<number>(len);
+    for (let i = 0; i < len; i++) result[i] = startRank + i;
+    return result;
+  }
+
+  const result: number[] = [];
+  const cardsArr = data.cards;
+  const sortArr = data.sortOrder;
+  const total = data.totalHands;
+
+  for (let rank = 0; rank < total && result.length < MAX_FILTER_RESULTS; rank++) {
+    const origIdx = sortArr[rank];
+    const base = origIdx * 5;
+
+    const rankCounts: Record<string, number> = {};
+    const sc = [0, 0, 0, 0];
+    for (let i = 0; i < 5; i++) {
+      const c = cardsArr[base + i];
+      const r = RANKS_DECODE[c >> 2];
+      rankCounts[r] = (rankCounts[r] || 0) + 1;
+      sc[c & 3]++;
+    }
+
+    let pairs = 0;
+    for (let s = 0; s < 4; s++) if (sc[s] >= 2) pairs++;
+    const suitType: 'ds' | 'ss' = pairs >= 2 ? 'ds' : 'ss';
+
+    const percentile = ((rank + 1) / total) * 100;
+
+    let matched = false;
+    for (const branch of search.branches) {
+      if (matchesBranch(rankCounts, suitType, branch)) { matched = true; break; }
+    }
+
+    if (matched) result.push(rank);
+  }
+
+  return result;
 }

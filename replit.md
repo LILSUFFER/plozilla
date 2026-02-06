@@ -5,16 +5,16 @@
 A browser-based 5-Card Omaha equity calculator similar to ProPokerTools Oracle. The calculator supports board input in valid poker states (Preflop: 0, Flop: 3, Turn: 4, River: 5 cards), multiple player hands (5 cards each), concatenated card notation (e.g., "7s6hJdQc8c"), and performs exhaustive equity calculations with accurate Omaha hand evaluation (exactly 2 hole cards + 3 board cards). Built as a client-side React TypeScript application.
 
 ## Recent Changes (Feb 2026)
-- **Equity-Based Hand Rankings** (Feb 2026): Rankings determined by actual equity vs random hand
-  - Monte Carlo simulation: 2,000 samples per hand group via Web Worker + WASM
-  - New WASM function `calculateVsRandom(numTrials)` keeps entire MC loop in WASM (no JS-WASM boundary overhead)
-  - Web Worker (`client/src/lib/rankings-worker.ts`) loads WASM + lookup table independently, runs computation in background
-  - Results cached in IndexedDB (versioned, instant on subsequent visits)
-  - First-time computation: ~30-60s with progress bar, then cached
-  - Top hand (AAKK DS) ~68% equity, bottom hands ~38-40%
-  - EQ% column added to table showing equity vs random
-  - Percentile still combo-weighted based on 2,598,960 total hands (C(52,5))
-  - `RankedHand.equity` field stores Monte Carlo equity, `RankedHand.percentile` stores cumulative combo percentage
+- **Individual Hand Rankings** (Feb 2026): All 2,598,960 hands ranked individually by equity vs random
+  - Every C(52,5) hand computed individually (not grouped), 50 MC trials each
+  - WASM `calculateVsRandom(numTrials)` keeps entire MC loop in WASM (no JS-WASM boundary overhead)
+  - Web Worker generates all hands in nested loops, computes equity, sorts by equity descending
+  - Data stored as typed arrays: Uint8Array(cards), Float32Array(equities), Uint32Array(sortOrder)
+  - Cached in IndexedDB (~33MB total), instant on subsequent visits
+  - First-time computation: ~5 minutes with progress bar, then cached (RANKINGS_VERSION=3)
+  - Virtual scroll display with 100K item cap (search unlocks all 2.6M)
+  - Each hand shows specific cards with suits, equity %, and percentile rank
+  - Search: ProPokerTools syntax + percentile filtering works on individual hands
 - **Rankings Search with ProPokerTools Syntax**: Full range syntax for search
   - Parser in `client/src/lib/rankings-search.ts`
   - Supports: exclusions (!), ascending/descending ranges (+/-), comma-separated OR, suit filters (ds/ss/$ds/$ss), rank macros ($B, $M, $Z, etc.), $np (no pairs), brackets ([A-K]), percentile filtering
