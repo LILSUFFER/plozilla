@@ -1,0 +1,63 @@
+Task: Split ALL PLO5 canonical hands (134,459 rows) into category buckets and add a category picker on the Hand Rankings page.
+Do NOT use percentages. Just categories → filter table.
+
+Scope:
+- Client-side classification only (v1). No backend changes required.
+- Classification must run once after the rankings list loads, store result per hand_key, and allow instant filtering.
+
+UI:
+1) Add a left sidebar (or dropdown on mobile) called "Categories".
+2) Show a simple expandable tree:
+   - All hands
+   - Unpaired
+     - Double-suited (DS)
+       - 5-card rundown (0–2 gaps)
+       - 4-card rundown (0–2 gaps)
+       - 3 Broadway
+       - 2 Broadway + 3 low
+       - Ragged
+     - Single-suited (SS)
+       - same subcategories
+   - One Pair
+     - DS
+     - SS
+   - Two Pair
+     - DS
+     - SS
+   - Trips (optional)
+3) Clicking a node filters the table to hands in that bucket.
+4) Filtering must NOT affect global rank values; rank stays from API.
+
+Classification rules (must implement):
+A) Pair type by rank multiplicities:
+- Unpaired: 5 distinct ranks
+- One Pair: 2+1+1+1
+- Two Pair: 2+2+1
+- Trips: 3+1+1
+(Anything else → "Other", can be hidden)
+
+B) Suited type by suit counts in the 5-card hand:
+- Double Suited (DS): suit counts are 2+2+1
+- Single Suited (SS): suit counts are 2+1+1+1
+- Otherwise → "Other suitedness" (can be hidden in v1)
+
+C) Unpaired subcategories (evaluate only if Unpaired):
+- Determine best “rundown” found in the 5 ranks:
+  - 5-card rundown (0–2 gaps): the 5 ranks form a 5-long straight window with <=2 gaps
+  - else 4-card rundown (0–2 gaps): any 4-rank subset forms a 4-long straight window with <=2 gaps
+  - else 3 Broadway: at least 3 ranks in {A,K,Q,J,T}
+  - else 2 Broadway + 3 low: exactly 2 ranks in {A,K,Q,J,T} and 3 ranks <=9
+  - else Ragged
+Gap definition for a rank set of size k:
+gaps = (maxRank - minRank + 1) - k
+Use A both as 14 and as 1 to detect wheel structures; choose min gaps.
+
+Performance requirements:
+- Do not re-classify on every render. Compute once and store in Map<hand_key, category>.
+- Filtering uses the stored category map.
+- Must stay fast with 134,459 rows.
+
+Deliver:
+- Implement classifyHand(hand) utility
+- Integrate sidebar filtering
+- Provide screenshots: All hands, Unpaired→DS→5-card rundown, One Pair→SS
