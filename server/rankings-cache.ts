@@ -186,7 +186,7 @@ export function loadRankingsFromFile(): boolean {
       }
     };
 
-    if (cachedData.metadata.boardSampleRate < 1.0) {
+    if (cachedData.metadata && cachedData.metadata.boardSampleRate < 1.0) {
       console.warn('WARNING: Loaded rankings from a TEST FILE (boardSampleRate < 1.0)');
     }
 

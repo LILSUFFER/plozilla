@@ -51,8 +51,6 @@ import * as path from 'path';
 import * as zlib from 'zlib';
 import * as os from 'os';
 import { fileURLToPath } from 'url';
-
-import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
 const __script_filename = fileURLToPath(import.meta.url);
