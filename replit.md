@@ -32,6 +32,17 @@ A browser-based 5-Card Omaha equity calculator similar to ProPokerTools Oracle. 
   - API: `/api/rankings` (paginated with search), `/api/rankings/status`, `/api/rankings/lookup`
   - Frontend shows 134K canonical hands with combo count column
   - Each canonical hand shows: rank, cards (canonical suits), combos (4-24), equity %, percentile
+- **Category Classification System for Rankings** (Feb 2026): Structural hand categorization
+  - Classification utility: `client/src/lib/hand-categories.ts`
+  - Pair types: unpaired, one_pair, two_pair, trips
+  - Suited types: double-suited (ds), single-suited (ss), other
+  - Unpaired subcategories: 5-card rundown, 4-card rundown, 3+ broadway, 2 broadway + low, ragged
+  - Collapsible sidebar tree UI with 3-level hierarchy
+  - Bulk loading: `/api/rankings/all` endpoint returns all 134K hands (~8MB JSON)
+  - Client-side classification runs once via useMemo, stored in Map for O(1) lookups
+  - Category filtering works alongside PPT search syntax
+  - Global rank always preserved (percentile from 134,459 total)
+  - EN/RU translations for all category labels
 - **Rankings Search with ProPokerTools Syntax**: Full range syntax for search
   - Parser in `client/src/lib/rankings-search.ts`
   - Supports: exclusions (!), ascending/descending ranges (+/-), comma-separated OR, suit filters (ds/ss/$ds/$ss), rank macros ($B, $M, $Z, etc.), $np (no pairs), brackets ([A-K]), percentile filtering
