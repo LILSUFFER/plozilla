@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { TrendingUp, DollarSign, BookOpen, LogOut, Loader2, Trophy, Info, Search, X, AlertTriangle, Copy, Check } from 'lucide-react';
 import { SiTelegram } from 'react-icons/si';
 import { useAuth } from '@/hooks/use-auth';
@@ -151,18 +152,56 @@ export default function RankingsPage() {
 
       <div className="container mx-auto px-4 py-4 shrink-0">
         <div className="mb-3">
-          <h2 className="text-xl font-bold flex items-center gap-2">
-            <Trophy className="w-5 h-5" />
-            {t('rankingsTitle')}
-          </h2>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 className="text-xl font-bold flex items-center gap-2">
+              <Trophy className="w-5 h-5" />
+              {t('rankingsTitle')}
+            </h2>
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button variant="ghost" size="sm" className="text-muted-foreground gap-1" data-testid="button-rankings-info">
+                  <Info className="w-4 h-4" />
+                  {t('rankingsInfoButton')}
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>{t('rankingsInfoTitle')}</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 text-sm text-muted-foreground">
+                  <div>
+                    <h4 className="font-semibold text-foreground mb-1">{t('rankingsInfoMethodTitle')}</h4>
+                    <p>{t('rankingsInfoMethod')}</p>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-foreground mb-1">{t('rankingsInfoCRNTitle')}</h4>
+                    <p>{t('rankingsInfoCRN')}</p>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-foreground mb-1">{t('rankingsInfoCanonTitle')}</h4>
+                    <p>{t('rankingsInfoCanon')}</p>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-foreground mb-1">{t('rankingsInfoColumnsTitle')}</h4>
+                    <ul className="list-disc pl-4 space-y-1">
+                      <li>{t('rankingsInfoColumnRank')}</li>
+                      <li>{t('rankingsInfoColumnHand')}</li>
+                      <li>{t('rankingsInfoColumnCombos')}</li>
+                      <li>{t('rankingsInfoColumnEQ')}</li>
+                      <li>{t('rankingsInfoColumnRankPct')}</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-foreground mb-1">{t('rankingsInfoSearchTitle')}</h4>
+                    <p>{t('rankingsInfoSearch')}</p>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </div>
           <p className="text-sm text-muted-foreground mt-1">
             {t('rankingsDesc')}
           </p>
-        </div>
-
-        <div className="flex items-start gap-2 p-3 rounded-md bg-muted/50 text-sm text-muted-foreground mb-3">
-          <Info className="w-4 h-4 mt-0.5 shrink-0" />
-          <span>{t('rankingsNote')}</span>
         </div>
 
         <div className="mb-3">
