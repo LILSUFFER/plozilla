@@ -2,15 +2,14 @@ import type { Express } from "express";
 import { type Server } from "http";
 import { setupCombinedAuth } from "./replit_integrations/auth";
 import {
-  loadRankingsFromDB,
+  loadRankingsFromFile,
   isRankingsReady,
-  isSeeding,
-  getSeedProgress,
+  getRankingsError,
+  getCalculationCallCount,
   getRankingsTotal,
   getTotalCombos,
   filterRankings,
   getRankingsPage,
-  seedRankingsInProcess,
   canonicalKey,
   lookupByCanonicalKey,
 } from "./rankings-cache";
@@ -21,26 +20,18 @@ export async function registerRoutes(
 ): Promise<Server> {
   await setupCombinedAuth(app);
 
-  loadRankingsFromDB().then((ok) => {
-    if (ok) {
-      console.log('Rankings data ready to serve');
-    } else {
-      console.log('Rankings not in DB or incomplete - will start seed after server is ready...');
-      setTimeout(() => {
-        console.log('Starting canonical rankings seed...');
-        seedRankingsInProcess();
-      }, 5000);
-    }
-  });
+  loadRankingsFromFile();
 
   app.get('/api/rankings', (req, res) => {
     if (!isRankingsReady()) {
+      const error = getRankingsError();
       return res.json({
         hands: [],
         total: 0,
+        totalHands: 0,
+        totalCombos: getTotalCombos(),
         ready: false,
-        seeding: isSeeding(),
-        seedProgress: getSeedProgress(),
+        error: error || 'Rankings not available',
       });
     }
 
@@ -50,11 +41,11 @@ export async function registerRoutes(
 
     if (search.trim()) {
       const result = filterRankings(search, offset, limit);
-      return res.json({ ...result, ready: true });
+      return res.json({ ...result, totalHands: getRankingsTotal(), totalCombos: getTotalCombos(), ready: true });
     }
 
     const result = getRankingsPage(offset, limit);
-    return res.json({ ...result, ready: true });
+    return res.json({ ...result, totalHands: getRankingsTotal(), totalCombos: getTotalCombos(), ready: true });
   });
 
   app.get('/api/rankings/status', (_req, res) => {
@@ -62,8 +53,8 @@ export async function registerRoutes(
       ready: isRankingsReady(),
       total: getRankingsTotal(),
       totalCombos: getTotalCombos(),
-      seeding: isSeeding(),
-      seedProgress: getSeedProgress(),
+      error: getRankingsError(),
+      calculationCalls: getCalculationCallCount(),
     });
   });
 
@@ -75,7 +66,8 @@ export async function registerRoutes(
     }
 
     if (!isRankingsReady()) {
-      return res.json({ ready: false, seeding: isSeeding(), seedProgress: getSeedProgress() });
+      const error = getRankingsError();
+      return res.json({ ready: false, error: error || 'Rankings not available' });
     }
 
     const key = canonicalKey(cardNums[0], cardNums[1], cardNums[2], cardNums[3], cardNums[4]);

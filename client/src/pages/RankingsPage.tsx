@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { TrendingUp, DollarSign, BookOpen, LogOut, Loader2, Trophy, Info, Search, X } from 'lucide-react';
+import { TrendingUp, DollarSign, BookOpen, LogOut, Loader2, Trophy, Info, Search, X, AlertTriangle } from 'lucide-react';
 import { SiTelegram } from 'react-icons/si';
 import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
@@ -37,9 +37,10 @@ interface ApiHand {
 interface ApiResponse {
   hands: ApiHand[];
   total: number;
+  totalHands: number;
+  totalCombos: number;
   ready: boolean;
-  seeding?: boolean;
-  seedProgress?: number;
+  error?: string;
 }
 
 export default function RankingsPage() {
@@ -197,7 +198,7 @@ function RankingsTable({ search, t }: { search: string; t: (key: any) => string 
   const prevSearchRef = useRef(search);
   const [totalHands, setTotalHands] = useState(0);
   const [ready, setReady] = useState<boolean | null>(null);
-  const [seedingState, setSeedingState] = useState<{ seeding: boolean; progress: number }>({ seeding: false, progress: 0 });
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const { data: initialData, isLoading: initialLoading } = useQuery<ApiResponse>({
     queryKey: ['/api/rankings', 'initial', search],
@@ -207,18 +208,16 @@ function RankingsTable({ search, t }: { search: string; t: (key: any) => string 
       const res = await fetch(`/api/rankings?${params}`);
       return res.json();
     },
-    refetchInterval: ready === false && seedingState.seeding ? 3000 : false,
   });
 
   useEffect(() => {
     if (initialData) {
       setReady(initialData.ready);
       setTotalHands(initialData.total);
-      if (initialData.seeding !== undefined || initialData.seedProgress !== undefined) {
-        setSeedingState({
-          seeding: initialData.seeding || false,
-          progress: initialData.seedProgress || 0,
-        });
+      if (initialData.error) {
+        setErrorMsg(initialData.error);
+      } else {
+        setErrorMsg(null);
       }
       if (prevSearchRef.current !== search) {
         pageCacheRef.current.clear();
@@ -283,31 +282,15 @@ function RankingsTable({ search, t }: { search: string; t: (key: any) => string 
   }, [visibleItems, ready, search, totalHands]);
 
   if (ready === false) {
-    const pct = Math.round(seedingState.progress * 100);
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-4 px-4" data-testid="rankings-not-ready">
-        {seedingState.seeding ? (
-          <>
-            <Loader2 className="w-8 h-8 animate-spin text-primary" />
-            <p className="text-foreground font-medium">{t('rankingsGenerating')}</p>
-            <p className="text-sm text-muted-foreground">{t('rankingsCanonicalNote')}</p>
-            <div className="w-64 max-w-full">
-              <div className="h-2 rounded-full bg-muted overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-primary transition-all duration-500"
-                  style={{ width: `${pct}%` }}
-                  data-testid="seed-progress-bar"
-                />
-              </div>
-              <p className="text-center text-sm text-muted-foreground mt-2" data-testid="seed-progress-text">{pct}%</p>
-            </div>
-          </>
-        ) : (
-          <>
-            <Info className="w-8 h-8 text-muted-foreground" />
-            <p className="text-muted-foreground">{t('rankingsNotReady')}</p>
-          </>
-        )}
+        <AlertTriangle className="w-8 h-8 text-destructive" />
+        <p className="text-foreground font-medium" data-testid="text-rankings-error">
+          {t('rankingsDbNotFound')}
+        </p>
+        <p className="text-sm text-muted-foreground text-center max-w-md">
+          {t('rankingsDbNotFoundDesc')}
+        </p>
       </div>
     );
   }

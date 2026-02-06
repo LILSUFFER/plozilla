@@ -1,0 +1,85 @@
+ТЕБЕ НУЖНО СРОЧНО ПЕРЕДЕЛАТЬ АРХИТЕКТУРУ: сейчас проект пересчитывает rankings в рантайме, что запрещено.
+
+ЧТО СЕЙЧАС НЕПРАВИЛЬНО (КОНКРЕТНО):
+1) server/routes.ts автоматически запускает сидинг:
+   loadRankingsFromDB() + setTimeout(...seedRankingsInProcess(), 5000)
+   => если БД пустая или не персистится на хостинге, проект начинает тяжелый пересчет заново при каждом перезапуске.
+
+2) server/rankings-cache.ts содержит тяжелый Monte-Carlo:
+   seedRankingsInProcess() делает calculateVsRandom(TRIALS_PER_HAND)
+   TRIALS_PER_HAND = 10000, RANKINGS_VERSION = 4
+   => это и есть причина “пересчитывает снова и снова”.
+
+3) В проекте две разные системы ранкингов:
+   - server/seed-rankings.ts пишет в hand_rankings_data (version=3, trials=25)
+   - server/rankings-cache.ts пишет в canonical_hand_rankings (version=4, trials=10000)
+   UI rankings использует /api/rankings => фактически зависит от rankings-cache.ts, а не от seed-rankings.ts.
+   => из-за этого несоответствие версий/таблиц и постоянные пересчеты.
+
+ЦЕЛЬ (ОБЯЗАТЕЛЬНО):
+Rankings должны считаться ОДИН РАЗ OFFLINE и дальше сайт должен только читать готовые данные.
+В рантайме (сервер/клиент) запрещены любые:
+- simulate/montecarlo
+- enumerate boards
+- calculate equity
+- сидинг/генерация данных
+
+ОБЯЗАТЕЛЬНЫЕ ИЗМЕНЕНИЯ:
+
+A) УБРАТЬ АВТОПЕРЕСЧЕТ ИЗ RUNTIME
+- В server/routes.ts удалить/полностью отключить любой автозапуск seedRankingsInProcess() (включая setTimeout).
+- Сервер при старте должен только загрузить готовые данные.
+- Если готовых данных нет -> вернуть ошибку:
+  “Rankings database not found. Run npm run precompute:rankings”
+  Никаких попыток “посчитать прямо сейчас”.
+
+B) СДЕЛАТЬ ОТДЕЛЬНЫЙ OFFLINE PRECOMPUTE СКРИПТ
+Добавь скрипт, который запускается вручную:
+- scripts/precompute_rankings.ts (или server/scripts/precompute_rankings.ts)
+- Он генерирует данные и сохраняет их в файл, который деплоится вместе с приложением.
+
+РЕКОМЕНДУЕМЫЙ ФОРМАТ (самый надежный, без БД):
+- public/plo5_rankings_v4.json.gz  (или public/plo5_rankings_v4.bin)
+
+Структура записи:
+hand_key (канонический ключ)
+equity_vs_random (float)
+percentile_rank (0..100)
+
+ВАЖНО: сохраняем не “каждую конкретную руку”, а canonical hand_key.
+hand_key должен получаться одинаково для изоморфных по мастям рук.
+
+C) ONLINE LOOKUP (ТОЛЬКО ЧТЕНИЕ)
+Сервер:
+- При старте читает файл из public/ (или из data/) в память (или делает индекс).
+- /api/rankings возвращает данные из готового набора.
+- /api/rankings?hand=... делает canonicalize(hand)->hand_key->lookup->ответ.
+Никаких вычислений equity.
+
+Клиент:
+- rankings page загружает готовые данные (или использует /api/rankings) и делает сортировку/фильтрацию.
+- Никаких web-worker симуляций, никаких расчётов equity.
+
+D) УДАЛИТЬ/ИЗОЛИРОВАТЬ СТАРЫЙ РАСЧЕТНЫЙ КОД
+- Любые функции calculateVsRandom / simulate должны быть доступны ТОЛЬКО из offline скрипта, не импортироваться в runtime.
+- Убедись, что сборщик не включает эти модули в клиент/сервер runtime.
+
+ACCEPTANCE TESTS (ОБЯЗАТЕЛЬНО, ЧТОБЫ Я ПРИНЯЛ РАБОТУ):
+1) Если файла public/plo5_rankings_v4.* нет:
+   - /rankings и /api/rankings должны выдавать понятную ошибку и НЕ начинать расчет.
+
+2) При обычной работе сайта счетчик “engine calculations” должен быть 0.
+   Добавь простой счетчик/лог: если любая симуляция вызывается в runtime -> throw Error.
+
+3) Приложение должно стартовать быстро: без “seeding in progress”.
+
+ЧТО ВЫДАТЬ:
+1) Обновленное дерево проекта
+2) Код offline скрипта precompute_rankings
+3) Код загрузки данных и endpoints /api/rankings (lookup-only)
+4) Инструкция:
+   - npm run precompute:rankings
+   - npm run build && npm run start
+   - как деплоить файл rankings вместе с приложением
+
+НАЧНИ С РЕФАКТОРИНГА ТЕКУЩЕГО КОДА, НЕ СОЗДАВАЙ НОВЫЙ ПРОЕКТ С НУЛЯ.
