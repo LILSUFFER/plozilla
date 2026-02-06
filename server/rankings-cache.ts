@@ -60,6 +60,34 @@ interface RankingsData {
   keyToRank: Map<string, number>;
   totalCanonical: number;
   totalCombos: number;
+  metadata?: {
+    method: string;
+    boardSampleRate: number;
+    villainSamplesPerBoard: number;
+    samplesPerHand: number;
+    generatedAt: string;
+  };
+}
+
+export function getRankingsStatus() {
+  if (!cachedData) return { ready: false, error: loadError };
+  const meta = cachedData.metadata;
+  const isTestFile = meta ? meta.boardSampleRate < 1.0 : false;
+  const lowSamples = meta ? meta.samplesPerHand < 50000 : false;
+
+  return {
+    ready: true,
+    totalCanonical: cachedData.totalCanonical,
+    totalCombos: cachedData.totalCombos,
+    method: meta?.method || 'unknown',
+    boardSampleRate: meta?.boardSampleRate ?? 0,
+    villainSamplesPerBoard: meta?.villainSamplesPerBoard ?? 0,
+    samplesPerHand: meta?.samplesPerHand ?? 0,
+    generatedAt: meta?.generatedAt || 'unknown',
+    isTestFile,
+    lowSamples,
+    warning: isTestFile ? 'TEST FILE' : (lowSamples ? 'LOW SAMPLE QUALITY' : null)
+  };
 }
 
 export interface HandResult {
@@ -126,7 +154,6 @@ export function loadRankingsFromFile(): boolean {
     const compressed = fs.readFileSync(DATA_FILE);
     const jsonStr = zlib.gunzipSync(compressed).toString('utf-8');
     const data = JSON.parse(jsonStr);
-
     const rawHands: any[] = data.hands;
     rawHands.sort((a: any, b: any) => a.rank - b.rank);
 
@@ -150,7 +177,18 @@ export function loadRankingsFromFile(): boolean {
       keyToRank,
       totalCanonical: data.canonicalHands || hands.length,
       totalCombos,
+      metadata: {
+        method: data.method || 'unknown',
+        boardSampleRate: data.boardSampleRate || 0,
+        villainSamplesPerBoard: data.villainSamplesPerBoard || 0,
+        samplesPerHand: data.samplesPerHand || 0,
+        generatedAt: data.generatedAt || 'unknown',
+      }
     };
+
+    if (cachedData.metadata.boardSampleRate < 1.0) {
+      console.warn('WARNING: Loaded rankings from a TEST FILE (boardSampleRate < 1.0)');
+    }
 
     loadError = null;
     const elapsed = ((Date.now() - startLoad) / 1000).toFixed(1);

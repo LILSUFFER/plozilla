@@ -52,7 +52,11 @@ import * as zlib from 'zlib';
 import * as os from 'os';
 import { fileURLToPath } from 'url';
 
-const __script_filename = typeof __filename !== 'undefined' ? __filename : fileURLToPath(import.meta.url);
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+const __script_filename = fileURLToPath(import.meta.url);
+const __script_dirname = dirname(__script_filename);
 
 const OUT_PATH = process.env.OUT_PATH || 'public/plo5_rankings_quasi_v1.json.gz';
 const NUM_WORKERS = Math.max(1, parseInt(process.env.NUM_WORKERS || String(Math.min(4, os.cpus().length)), 10));

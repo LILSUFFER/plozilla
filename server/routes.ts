@@ -12,6 +12,7 @@ import {
   getRankingsPage,
   canonicalKey,
   lookupByCanonicalKey,
+  getRankingsStatus,
 } from "./rankings-cache";
 
 export async function registerRoutes(
@@ -49,13 +50,7 @@ export async function registerRoutes(
   });
 
   app.get('/api/rankings/status', (_req, res) => {
-    res.json({
-      ready: isRankingsReady(),
-      total: getRankingsTotal(),
-      totalCombos: getTotalCombos(),
-      error: getRankingsError(),
-      calculationCalls: getCalculationCallCount(),
-    });
+    res.json(getRankingsStatus());
   });
 
   app.get('/api/rankings/lookup', (req, res) => {
