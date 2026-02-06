@@ -370,10 +370,26 @@ fn run_precompute(args: &[String]) {
     let total_evals = evals_per_hero * num_hands as u64;
     eprintln!();
     eprintln!("[3/4] Computing equity...");
-    eprintln!("       {} evals/hero × {} heroes = {:.2}T total evaluations",
+    eprintln!("       ALGORITHM:");
+    eprintln!("         For each canonical hero hand (5 cards):");
+    eprintln!("           remaining = 52 - 5 hero = 47 cards");
+    if full_enum {
+        eprintln!("           For EACH of C(47,5) = {} 5-card community boards:", BINOM[47][5]);
+    } else {
+        eprintln!("           For {} RANDOM 5-card community boards (sampled from 47):", boards_per_hero);
+    }
+    eprintln!("             pool = 47 - 5 board = 42 cards");
+    eprintln!("             For {} random villain hands (5 cards from pool of 42):", villain_samples);
+    eprintln!("               PLO5 eval: best(C(5,2) hero × C(5,3) board) = best of 100 combos");
+    eprintln!("               Compare hero_rank vs villain_rank → win/lose/tie");
+    eprintln!("             equity = wins / total_showdowns");
+    eprintln!();
+    eprintln!("       {} showdowns/hero × {} heroes = {:.2}T total showdowns",
         evals_per_hero, num_hands, total_evals as f64 / 1e12);
 
     let progress = AtomicU64::new(0);
+    let global_boards_total = AtomicU64::new(0);
+    let global_showdowns_total = AtomicU64::new(0);
     let t2 = Instant::now();
     let chunk_size = (num_hands + num_threads - 1) / num_threads;
 
@@ -383,6 +399,8 @@ fn run_precompute(args: &[String]) {
                 let table_ref = &table;
                 let canonical_ref = &canonical;
                 let progress_ref = &progress;
+                let boards_total_ref = &global_boards_total;
+                let showdowns_total_ref = &global_showdowns_total;
                 let full = full_enum;
                 let bph = boards_per_hero;
                 s.spawn(move || {
@@ -392,6 +410,8 @@ fn run_precompute(args: &[String]) {
                     let mut rng = Xorshift64::new(
                         (t as u64 + 1).wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407)
                     );
+                    let mut local_boards: u64 = 0;
+                    let mut local_showdowns: u64 = 0;
 
                     for i in start..end {
                         let hero = &canonical_ref[i].0;
@@ -408,6 +428,7 @@ fn run_precompute(args: &[String]) {
                                     for b2 in (b1 + 1)..(rem_len - 2) {
                                         for b3 in (b2 + 1)..(rem_len - 1) {
                                             for b4 in (b3 + 1)..rem_len {
+                                                local_boards += 1;
                                                 let mut board = [
                                                     remaining[b0], remaining[b1], remaining[b2],
                                                     remaining[b3], remaining[b4],
@@ -433,6 +454,7 @@ fn run_precompute(args: &[String]) {
                                                         equity_sum += 0.5;
                                                     }
                                                     count += 1;
+                                                    local_showdowns += 1;
                                                 }
                                             }
                                         }
@@ -441,6 +463,7 @@ fn run_precompute(args: &[String]) {
                             }
                         } else {
                             for _ in 0..bph {
+                                local_boards += 1;
                                 let board = sample_villain(&remaining, &mut rng);
                                 let mut sorted_board = board;
                                 sorted_board.sort();
@@ -460,6 +483,7 @@ fn run_precompute(args: &[String]) {
                                         equity_sum += 0.5;
                                     }
                                     count += 1;
+                                    local_showdowns += 1;
                                 }
                             }
                         }
@@ -481,6 +505,8 @@ fn run_precompute(args: &[String]) {
                             );
                         }
                     }
+                    boards_total_ref.fetch_add(local_boards, Ordering::Relaxed);
+                    showdowns_total_ref.fetch_add(local_showdowns, Ordering::Relaxed);
                     thread_results
                 })
             })
@@ -494,6 +520,9 @@ fn run_precompute(args: &[String]) {
     let compute_m = ((compute_elapsed % 3600.0) / 60.0) as u32;
     let compute_s = (compute_elapsed % 60.0) as u32;
     eprintln!("       Done in {}h{:02}m{:02}s ({:.1}s)", compute_h, compute_m, compute_s, compute_elapsed);
+
+    let boards_total = global_boards_total.load(Ordering::Relaxed);
+    let showdowns_total = global_showdowns_total.load(Ordering::Relaxed);
 
     let all_results: Vec<(f64, u64)> = results.into_iter().flatten().collect();
 
@@ -545,18 +574,30 @@ fn run_precompute(args: &[String]) {
     let file_size = 64 + num_hands * 20;
 
     eprintln!();
+    let total_elapsed = t0.elapsed().as_secs_f64();
+    let showdowns_per_sec = if compute_elapsed > 0.0 { showdowns_total as f64 / compute_elapsed } else { 0.0 };
+
     eprintln!("╔══════════════════════════════════════════════╗");
     eprintln!("║              Precompute Complete              ║");
     eprintln!("╚══════════════════════════════════════════════╝");
-    eprintln!("  Output:          {}", output);
-    eprintln!("  File size:       {:.2} MB ({} bytes)", file_size as f64 / 1e6, file_size);
-    eprintln!("  Hands:           {}", num_hands);
-    eprintln!("  Boards/hero:     {}", boards_per_hero);
-    eprintln!("  Villain samples: {}", villain_samples);
-    eprintln!("  Avg samples:     {}", avg_samples);
-    eprintln!("  Min samples:     {}", min_samples);
-    eprintln!("  Max samples:     {}", max_samples);
-    eprintln!("  Total time:      {:.1}s", t0.elapsed().as_secs_f64());
+    eprintln!("  Output:                    {}", output);
+    eprintln!("  File size:                 {:.2} MB ({} bytes)", file_size as f64 / 1e6, file_size);
+    eprintln!();
+    eprintln!("  ── HARD COUNTERS ──────────────────────────");
+    eprintln!("  heroes_processed:          {}", num_hands);
+    eprintln!("  boards_processed_total:    {}", boards_total);
+    eprintln!("  boards_per_hero_average:   {}", if num_hands > 0 { boards_total / num_hands as u64 } else { 0 });
+    eprintln!("  villain_samples_per_board: {}", villain_samples);
+    eprintln!("  villain_samples_total:     {}", showdowns_total);
+    eprintln!("  total_showdown_evals:      {}", showdowns_total);
+    eprintln!("  elapsed_seconds:           {:.2}", total_elapsed);
+    eprintln!("  compute_seconds:           {:.2}", compute_elapsed);
+    eprintln!("  showdowns_per_second:      {:.0}", showdowns_per_sec);
+    eprintln!();
+    eprintln!("  ── EQUITY STATS ──────────────────────────");
+    eprintln!("  Avg samples/hero:          {}", avg_samples);
+    eprintln!("  Min samples/hero:          {}", min_samples);
+    eprintln!("  Max samples/hero:          {}", max_samples);
 
     let top5: Vec<String> = entries.iter().take(5).map(|&(idx, eq, _)| {
         let h = &canonical[idx].0;
@@ -737,6 +778,163 @@ fn parse_baselines(json: &str) -> Vec<([u8; 5], f64)> {
     results
 }
 
+fn parse_hand(s: &str) -> Option<[u8; 5]> {
+    let ranks = "23456789TJQKA";
+    let suits = "cdhs";
+    let s = s.trim();
+    let mut cards = Vec::new();
+    let mut i = 0;
+    let bytes = s.as_bytes();
+    while i < bytes.len() {
+        let r_ch = bytes[i] as char;
+        if let Some(r) = ranks.find(r_ch) {
+            if i + 1 < bytes.len() {
+                let s_ch = bytes[i + 1] as char;
+                if let Some(su) = suits.find(s_ch) {
+                    cards.push((su as u8) * 13 + r as u8);
+                    i += 2;
+                    continue;
+                }
+            }
+        }
+        i += 1;
+    }
+    if cards.len() == 5 {
+        let mut arr = [cards[0], cards[1], cards[2], cards[3], cards[4]];
+        arr.sort();
+        Some(arr)
+    } else {
+        None
+    }
+}
+
+fn run_accuracy(args: &[String]) {
+    let bin_path = parse_flag(args, "--bin").unwrap_or_else(|| "plo5_rankings_prod.bin".into());
+    let trials: u64 = parse_flag(args, "--trials")
+        .and_then(|s| s.parse().ok()).unwrap_or(2_000_000);
+
+    let test_hands_str = vec![
+        "AcAdAhKsQs",
+        "AcAdKcKdQh",
+        "AcAdKhQhJh",
+        "KcKdKhQsJs",
+        "JcTc9c8c7c",
+        "AcKcQcJcTd",
+        "2c3c4d5d7h",
+        "AcAd2s3s4h",
+        "TcTd9h8h7s",
+        "6c6d5h4h3s",
+    ];
+
+    eprintln!("╔══════════════════════════════════════════════╗");
+    eprintln!("║       PLO5 Accuracy Benchmark                ║");
+    eprintln!("╚══════════════════════════════════════════════╝");
+    eprintln!("  Binary:  {}", bin_path);
+    eprintln!("  Trials:  {} per hand (unbiased MC)", trials);
+    eprintln!();
+
+    let t0 = Instant::now();
+    eprintln!("[1/3] Initializing eval table...");
+    let table = init_eval_table();
+    eprintln!("       Done in {:.2}s", t0.elapsed().as_secs_f64());
+
+    eprintln!("[2/3] Loading engine results from binary...");
+    let bin_data = fs::read(&bin_path).unwrap();
+    assert!(bin_data.len() >= 64, "File too small");
+    assert_eq!(&bin_data[0..4], b"PLO5", "Invalid magic");
+    let num_hands = u32::from_le_bytes(bin_data[8..12].try_into().unwrap()) as usize;
+    let boards_in_file = u32::from_le_bytes(bin_data[12..16].try_into().unwrap());
+    let v_samples_in_file = u32::from_le_bytes(bin_data[16..20].try_into().unwrap());
+
+    let mut engine_map: HashMap<[u8; 5], f64> = HashMap::new();
+    for i in 0..num_hands {
+        let off = 64 + i * 20;
+        let cards: [u8; 5] = bin_data[off..off + 5].try_into().unwrap();
+        let equity = f32::from_le_bytes(bin_data[off + 6..off + 10].try_into().unwrap()) as f64;
+        engine_map.insert(cards, equity);
+    }
+    eprintln!("       {} hands loaded (boards={}, V={})", num_hands, boards_in_file, v_samples_in_file);
+
+    eprintln!("[3/3] Running unbiased MC for {} hands...", test_hands_str.len());
+    eprintln!();
+
+    let mut test_hands: Vec<([u8; 5], String)> = Vec::new();
+    for s in &test_hands_str {
+        if let Some(h) = parse_hand(s) {
+            let can = canonicalize(&h);
+            test_hands.push((can, s.to_string()));
+        } else {
+            eprintln!("  WARNING: Could not parse hand '{}'", s);
+        }
+    }
+
+    let num_threads = num_cpus();
+
+    eprintln!("  {:>3}  {:<14}  {:>10}  {:>10}  {:>8}", "#", "Hand", "Engine%", "MC_2M%", "Delta%");
+    eprintln!("  ───  ──────────────  ──────────  ──────────  ────────");
+
+    let mut max_delta = 0.0f64;
+
+    for (idx, (canonical_hand, label)) in test_hands.iter().enumerate() {
+        let hero = *canonical_hand;
+        let hero_2s = two_card_subsets(&hero);
+        let remaining: Vec<u8> = (0..52u8).filter(|c| !hero.contains(c)).collect();
+
+        let chunk = (trials as usize + num_threads - 1) / num_threads;
+        let mc_equity: f64 = thread::scope(|s| {
+            let handles: Vec<_> = (0..num_threads).map(|t| {
+                let table_ref = &table;
+                let hero_2s_ref = &hero_2s;
+                let remaining_ref = &remaining;
+                s.spawn(move || {
+                    let start = t * chunk;
+                    let end = ((t + 1) * chunk).min(trials as usize);
+                    let mut rng = Xorshift64::new(
+                        (t as u64 + 42 + idx as u64).wrapping_mul(6364136223846793005).wrapping_add(1)
+                    );
+                    let mut wins = 0.0f64;
+                    let mut total = 0u64;
+                    for _ in start..end {
+                        let board = sample_villain(remaining_ref, &mut rng);
+                        let mut sorted_board = board;
+                        sorted_board.sort();
+                        let board_3s = three_card_subsets(&sorted_board);
+                        let hero_rank = eval_best(hero_2s_ref, &board_3s, table_ref);
+
+                        let pool: Vec<u8> = remaining_ref.iter()
+                            .copied().filter(|c| !board.contains(c)).collect();
+                        let villain = sample_villain(&pool, &mut rng);
+                        let villain_2s = two_card_subsets(&villain);
+                        let villain_rank = eval_best(&villain_2s, &board_3s, table_ref);
+
+                        if hero_rank < villain_rank { wins += 1.0; }
+                        else if hero_rank == villain_rank { wins += 0.5; }
+                        total += 1;
+                    }
+                    (wins, total)
+                })
+            }).collect();
+            let (total_wins, total_count): (f64, u64) = handles.into_iter()
+                .map(|h| h.join().unwrap())
+                .fold((0.0, 0), |(w, c), (w2, c2)| (w + w2, c + c2));
+            total_wins / total_count as f64
+        });
+
+        let engine_eq = engine_map.get(canonical_hand).copied().unwrap_or(f64::NAN);
+        let delta = (engine_eq - mc_equity) * 100.0;
+        max_delta = max_delta.max(delta.abs());
+
+        eprintln!("  {:>3}  {:<14}  {:>9.3}%  {:>9.3}%  {:>+7.3}%",
+            idx + 1, label, engine_eq * 100.0, mc_equity * 100.0, delta);
+    }
+
+    eprintln!();
+    eprintln!("  Max |delta|: {:.3}%", max_delta);
+    eprintln!("  Target:      <= 0.15%");
+    eprintln!("  Status:      {}", if max_delta <= 0.15 { "PASS" } else { "FAIL" });
+    eprintln!("  Total time:  {:.1}s", t0.elapsed().as_secs_f64());
+}
+
 fn run_info() {
     let t0 = Instant::now();
     eprintln!("PLO5 Ranker Engine v2.0");
@@ -809,10 +1007,14 @@ fn main() {
         eprintln!();
         eprintln!("Usage:");
         eprintln!("  plo5_ranker precompute [options]");
-        eprintln!("    --boards full|<N>       Board enumeration (default: full)");
-        eprintln!("    --villain-samples <N>   Villain samples per board (default: 50)");
+        eprintln!("    --boards full|<N>       Board mode: 'full' = exhaustive C(47,5), <N> = random sample N boards");
+        eprintln!("    --villain-samples <N>   Random villain hands per board (default: 50)");
         eprintln!("    --threads auto|<N>      Thread count (default: auto)");
         eprintln!("    --out <path>            Output file (default: plo5_rankings_prod.bin)");
+        eprintln!();
+        eprintln!("  plo5_ranker accuracy [options]");
+        eprintln!("    --bin <path>            Binary file to test (default: plo5_rankings_prod.bin)");
+        eprintln!("    --trials <N>            MC trials per hand (default: 2000000)");
         eprintln!();
         eprintln!("  plo5_ranker baseline [options]");
         eprintln!("    --out <path>            Output file (default: baseline.json)");
@@ -832,11 +1034,12 @@ fn main() {
 
     match args[1].as_str() {
         "precompute" => run_precompute(&args[2..]),
+        "accuracy" => run_accuracy(&args[2..]),
         "baseline" => run_baseline(&args[2..]),
         "validate" => run_validate(&args[2..]),
         "info" => run_info(),
         other => {
-            eprintln!("Unknown command: {}. Use precompute, baseline, validate, or info.", other);
+            eprintln!("Unknown command: {}. Use precompute, accuracy, baseline, validate, or info.", other);
             std::process::exit(1);
         }
     }
