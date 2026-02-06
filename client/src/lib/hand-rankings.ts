@@ -6,12 +6,15 @@ const VAL_TO_RANK: Record<number, Rank> = {
   9: '9', 8: '8', 7: '7', 6: '6', 5: '5', 4: '4', 3: '3', 2: '2'
 };
 
+export const TOTAL_5CARD_HANDS = 2598960;
+
 export interface RankedHand {
   cards: Card[];
   score: number;
   combos: number;
   suitType: 'ds' | 'ss';
   rankKey: string;
+  percentile: number;
 }
 
 const SUBSETS: number[][][] = [
@@ -141,15 +144,16 @@ function assignSS(ranks: number[]): Card[] {
   }));
 }
 
-const PAIR_BONUSES: Record<number, number> = {
-  14: 30, 13: 24, 12: 19, 11: 15, 10: 12, 9: 9, 8: 7, 7: 5, 6: 4, 5: 3, 4: 2.5, 3: 2, 2: 1.5
+const PAIR_BONUS: Record<number, number> = {
+  14: 18, 13: 14, 12: 11, 11: 9, 10: 6,
+  9: 4, 8: 3, 7: 2, 6: 1.5, 5: 1, 4: 0.5, 3: 0.5, 2: 0.5
 };
 
 function scoreHand(ranks: number[], suitType: 'ds' | 'ss'): number {
   const sorted = [...ranks].sort((a, b) => b - a);
   let score = 0;
 
-  const weights = [2.0, 1.8, 1.5, 1.2, 1.0];
+  const weights = [2.5, 2.0, 1.5, 1.0, 0.5];
   for (let i = 0; i < 5; i++) {
     score += (sorted[i] - 2) * weights[i];
   }
@@ -168,78 +172,82 @@ function scoreHand(ranks: number[], suitType: 'ds' | 'ss'): number {
   }
 
   if (hasQuads) {
-    score -= 30;
+    score -= 25;
   } else if (tripsRank > 0) {
-    score -= 12;
+    score -= 10;
     score += Math.max(0, (tripsRank - 8) * 0.5);
   } else {
     for (const p of pairs) {
-      score += PAIR_BONUSES[p] || 1;
+      score += PAIR_BONUS[p] || 0.5;
     }
-    if (pairs.length >= 2) score += 10;
+    if (pairs.length >= 2) score += 5;
   }
 
-  if (suitType === 'ds') {
-    score += 14;
-    if (sorted[0] === 14) score += 3;
-  } else {
-    if (sorted[0] === 14) score += 9;
-    else if (sorted[0] === 13) score += 7;
-    else score += 5;
-  }
+  const uniqueSet = new Set<number>();
+  for (const r of ranks) uniqueSet.add(r);
+  const unique = Array.from(uniqueSet).sort((a, b) => b - a);
 
-  const uniqueSet: Record<number, boolean> = {};
-  const unique: number[] = [];
-  for (const r of sorted) {
-    if (!uniqueSet[r]) { uniqueSet[r] = true; unique.push(r); }
-  }
-  let maxInWindow = 0;
+  let bestWindowCount = 0;
+  let bestWindowHigh = 0;
 
   for (let base = 2; base <= 10; base++) {
     let count = 0;
     for (const r of unique) {
       if (r >= base && r <= base + 4) count++;
     }
-    if (count > maxInWindow) maxInWindow = count;
-  }
-
-  const wheelRanks: number[] = [];
-  for (const r of unique) wheelRanks.push(r === 14 ? 1 : r);
-  const wheelSet: Record<number, boolean> = {};
-  const uniqueWheel: number[] = [];
-  for (const r of wheelRanks) {
-    if (!wheelSet[r]) { wheelSet[r] = true; uniqueWheel.push(r); }
-  }
-  for (let base = 1; base <= 6; base++) {
-    let count = 0;
-    for (const r of uniqueWheel) {
-      if (r >= base && r <= base + 4) count++;
+    if (count > bestWindowCount || (count === bestWindowCount && base + 4 > bestWindowHigh)) {
+      bestWindowCount = count;
+      bestWindowHigh = base + 4;
     }
-    if (count > maxInWindow) maxInWindow = count;
   }
 
-  const connectBonuses = [0, 0, 4, 12, 20, 28];
-  score += connectBonuses[Math.min(maxInWindow, 5)];
+  {
+    let count = 0;
+    for (const r of unique) {
+      if (r === 14 || (r >= 2 && r <= 5)) count++;
+    }
+    if (count > bestWindowCount) {
+      bestWindowCount = count;
+      bestWindowHigh = 5;
+    }
+  }
 
-  let maxTight = 1, currentTight = 1;
+  const connectBonuses = [0, 0, 1, 5, 11, 18];
+  score += connectBonuses[Math.min(bestWindowCount, 5)];
+
+  if (bestWindowCount >= 3 && bestWindowHigh >= 12) score += 2;
+
+  let maxConsec = 1, curConsec = 1;
   for (let i = 1; i < unique.length; i++) {
     if (unique[i - 1] - unique[i] === 1) {
-      currentTight++;
-      if (currentTight > maxTight) maxTight = currentTight;
+      curConsec++;
+      if (curConsec > maxConsec) maxConsec = curConsec;
     } else {
-      currentTight = 1;
+      curConsec = 1;
     }
   }
-  if (maxTight >= 5) score += 8;
-  else if (maxTight >= 4) score += 6;
-  else if (maxTight >= 3) score += 3;
+  if (maxConsec >= 5) score += 7;
+  else if (maxConsec >= 4) score += 5;
+  else if (maxConsec >= 3) score += 2;
 
-  if (maxInWindow >= 3) {
-    let highCount = 0;
-    for (const r of unique) {
-      if (r >= 10) highCount++;
+  if (suitType === 'ds') {
+    score += 5;
+  } else {
+    score += 2;
+  }
+  if (sorted[0] === 14) score += 2;
+  else if (sorted[0] === 13) score += 1;
+
+  for (const r of unique) {
+    let minGap = Infinity;
+    for (const other of unique) {
+      if (other === r) continue;
+      minGap = Math.min(minGap, Math.abs(r - other));
     }
-    if (highCount >= 3) score += 6;
+    if (minGap !== Infinity) {
+      if (minGap >= 5) score -= 4;
+      else if (minGap >= 4) score -= 2;
+    }
   }
 
   return Math.round(score * 100) / 100;
@@ -289,6 +297,7 @@ export function generateRankedHands(): RankedHand[] {
                   combos: dsCombos,
                   suitType: 'ds',
                   rankKey,
+                  percentile: 0,
                 });
               }
             }
@@ -302,6 +311,7 @@ export function generateRankedHands(): RankedHand[] {
                 combos: nonDsCombos,
                 suitType: 'ss',
                 rankKey,
+                percentile: 0,
               });
             }
           }
@@ -315,6 +325,12 @@ export function generateRankedHands(): RankedHand[] {
     if (a.suitType !== b.suitType) return a.suitType === 'ds' ? -1 : 1;
     return a.rankKey < b.rankKey ? -1 : a.rankKey > b.rankKey ? 1 : 0;
   });
+
+  let cumCombos = 0;
+  for (const h of hands) {
+    cumCombos += h.combos;
+    h.percentile = Math.round((cumCombos / TOTAL_5CARD_HANDS) * 10000) / 100;
+  }
 
   cachedHands = hands;
   return hands;

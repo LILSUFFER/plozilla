@@ -5,6 +5,19 @@
 A browser-based 5-Card Omaha equity calculator similar to ProPokerTools Oracle. The calculator supports board input in valid poker states (Preflop: 0, Flop: 3, Turn: 4, River: 5 cards), multiple player hands (5 cards each), concatenated card notation (e.g., "7s6hJdQc8c"), and performs exhaustive equity calculations with accurate Omaha hand evaluation (exactly 2 hole cards + 3 board cards). Built as a client-side React TypeScript application.
 
 ## Recent Changes (Feb 2026)
+- **Improved Hand Rankings Scoring** (Feb 2026): Redesigned scoring to better approximate actual PLO5 EV
+  - Card quality is dominant factor (positional weights [2.5, 2.0, 1.5, 1.0, 0.5])
+  - DS bonus reduced from 14→5 (was massively overvaluing double-suited hands)
+  - Pair bonuses rebalanced (AA:18, KK:14, QQ:11, JJ:9, TT:6, low pairs: 0.5-4)
+  - Added dangler penalty (cards isolated by gap ≥5 get -4, gap ≥4 get -2)
+  - Connectivity: 5-in-window=+18, 4-in-window=+11, 3-in-window=+5 plus consecutive bonuses
+  - Verified: AK964 SS (rank ~3471) correctly ranks above TT532 DS (rank ~8629)
+  - Percentile now combo-weighted based on 2,598,960 total hands (C(52,5)), not 12,194 groups
+  - `RankedHand.percentile` field stores cumulative combo percentage
+- **Rankings Search with ProPokerTools Syntax**: Full range syntax for search
+  - Parser in `client/src/lib/rankings-search.ts`
+  - Supports: exclusions (!), ascending/descending ranges (+/-), comma-separated OR, suit filters (ds/ss/$ds/$ss), rank macros ($B, $M, $Z, etc.), $np (no pairs), brackets ([A-K]), percentile filtering
+  - Examples: AA, AA!KK, KK+, TT+ds, AA,KK, 20%, 5%-10%
 - **EN/RU Bilingual Support**: Full internationalization with language switching
   - React Context-based i18n system (`client/src/lib/i18n.tsx`)
   - `useTranslation` hook for all components, `I18nProvider` wraps entire app

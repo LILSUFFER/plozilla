@@ -448,8 +448,7 @@ export function matchesHandGroup(
   if (!search) return true;
 
   if (search.type === 'percent') {
-    const pct = ((handIndex + 1) / totalHands) * 100;
-    return pct >= search.lo && pct <= search.hi;
+    return hand.percentile >= search.lo && hand.percentile <= search.hi;
   }
 
   const handCounts: Record<string, number> = {};

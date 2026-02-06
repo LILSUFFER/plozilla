@@ -202,7 +202,6 @@ export default function RankingsPage() {
       ) : (
         <VirtualTable
           items={filteredHands}
-          totalAll={totalAll}
           scrollRef={scrollRef}
           t={t}
         />
@@ -213,12 +212,10 @@ export default function RankingsPage() {
 
 function VirtualTable({
   items,
-  totalAll,
   scrollRef,
   t,
 }: {
   items: { hand: RankedHand; originalIndex: number }[];
-  totalAll: number;
   scrollRef: React.RefObject<HTMLDivElement | null>;
   t: (key: any) => string;
 }) {
@@ -255,7 +252,7 @@ function VirtualTable({
             {virtualizer.getVirtualItems().map((virtualRow) => {
               const { hand, originalIndex } = items[virtualRow.index];
               const rank = originalIndex + 1;
-              const percentile = ((rank / totalAll) * 100).toFixed(1);
+              const percentile = hand.percentile.toFixed(1);
               return (
                 <div
                   key={virtualRow.key}
