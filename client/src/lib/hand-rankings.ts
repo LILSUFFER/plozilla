@@ -11,24 +11,54 @@ export interface RankedHand {
   score: number;
   combos: number;
   suitType: 'ds' | 'ss';
+  rankKey: string;
 }
 
-const ALL_PERMS: number[][] = [];
-(function initPerms() {
-  const arr = [0, 1, 2, 3];
-  function permute(start: number) {
-    if (start === arr.length) {
-      ALL_PERMS.push([...arr]);
-      return;
+const SUBSETS: number[][][] = [
+  [[]],
+  [[0], [1], [2], [3]],
+  [[0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]],
+  [[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]],
+  [[0, 1, 2, 3]],
+];
+
+const C4 = [1, 4, 6, 4, 1];
+
+function countSuitAssignments(mults: number[], target: number[], idx: number): number {
+  if (idx === mults.length) {
+    return (target[0] === 0 && target[1] === 0 && target[2] === 0 && target[3] === 0) ? 1 : 0;
+  }
+
+  const ci = mults[idx];
+  let total = 0;
+
+  for (const subset of SUBSETS[ci]) {
+    let nt0 = target[0], nt1 = target[1], nt2 = target[2], nt3 = target[3];
+    let valid = true;
+    for (let s = 0; s < ci; s++) {
+      const suit = subset[s];
+      if (suit === 0) { nt0--; if (nt0 < 0) { valid = false; break; } }
+      else if (suit === 1) { nt1--; if (nt1 < 0) { valid = false; break; } }
+      else if (suit === 2) { nt2--; if (nt2 < 0) { valid = false; break; } }
+      else { nt3--; if (nt3 < 0) { valid = false; break; } }
     }
-    for (let i = start; i < arr.length; i++) {
-      [arr[start], arr[i]] = [arr[i], arr[start]];
-      permute(start + 1);
-      [arr[start], arr[i]] = [arr[i], arr[start]];
+    if (valid) {
+      total += countSuitAssignments(mults, [nt0, nt1, nt2, nt3], idx + 1);
     }
   }
-  permute(0);
-})();
+
+  return total;
+}
+
+function computeTotalCombos(mults: number[]): number {
+  let total = 1;
+  for (const m of mults) total *= C4[m];
+  return total;
+}
+
+function computeDSCombos(mults: number[]): number {
+  return 12 * countSuitAssignments(mults, [2, 2, 1, 0], 0);
+}
 
 function assignDS(ranks: number[]): Card[] | null {
   let bestCards: Card[] | null = null;
@@ -215,30 +245,8 @@ function scoreHand(ranks: number[], suitType: 'ds' | 'ss'): number {
   return Math.round(score * 100) / 100;
 }
 
-function computeCombos(cards: Card[]): number {
-  const suitToIdx: Record<string, number> = { s: 0, h: 1, d: 2, c: 3 };
-  const rankVal: Record<string, number> = {
-    '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8,
-    '9': 9, 'T': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14
-  };
-
-  const encoded = new Set(cards.map(c => rankVal[c.rank] * 4 + suitToIdx[c.suit]));
-  const cardSuits = cards.map(c => suitToIdx[c.suit]);
-  const cardRanks = cards.map(c => rankVal[c.rank]);
-
-  let auto = 0;
-  for (const perm of ALL_PERMS) {
-    let match = true;
-    for (let i = 0; i < 5; i++) {
-      if (!encoded.has(cardRanks[i] * 4 + perm[cardSuits[i]])) {
-        match = false;
-        break;
-      }
-    }
-    if (match) auto++;
-  }
-
-  return 24 / auto;
+function makeRankKey(ranks: number[]): string {
+  return ranks.map(r => VAL_TO_RANK[r]).join('');
 }
 
 let cachedHands: RankedHand[] | null = null;
@@ -255,38 +263,59 @@ export function generateRankedHands(): RankedHand[] {
           for (let e = d; e < 13; e++) {
             const ranks = [RANK_VALS[a], RANK_VALS[b], RANK_VALS[c], RANK_VALS[d], RANK_VALS[e]];
 
-            let maxCount = 0;
             const cnt = new Uint8Array(15);
+            let maxCnt = 0;
             for (const r of ranks) {
               cnt[r]++;
-              if (cnt[r] > maxCount) maxCount = cnt[r];
+              if (cnt[r] > maxCnt) maxCnt = cnt[r];
             }
-            if (maxCount > 4) continue;
+            if (maxCnt > 4) continue;
 
-            const dsCards = assignDS(ranks);
-            if (dsCards) {
+            const mults: number[] = [];
+            for (let r = 14; r >= 2; r--) {
+              if (cnt[r] > 0) mults.push(cnt[r]);
+            }
+
+            const total = computeTotalCombos(mults);
+            const dsCombos = computeDSCombos(mults);
+            const rankKey = makeRankKey(ranks);
+
+            if (dsCombos > 0) {
+              const dsCards = assignDS(ranks);
+              if (dsCards) {
+                hands.push({
+                  cards: dsCards,
+                  score: scoreHand(ranks, 'ds'),
+                  combos: dsCombos,
+                  suitType: 'ds',
+                  rankKey,
+                });
+              }
+            }
+
+            const nonDsCombos = total - dsCombos;
+            if (nonDsCombos > 0) {
+              const ssCards = assignSS(ranks);
               hands.push({
-                cards: dsCards,
-                score: scoreHand(ranks, 'ds'),
-                combos: computeCombos(dsCards),
-                suitType: 'ds',
+                cards: ssCards,
+                score: scoreHand(ranks, 'ss'),
+                combos: nonDsCombos,
+                suitType: 'ss',
+                rankKey,
               });
             }
-
-            const ssCards = assignSS(ranks);
-            hands.push({
-              cards: ssCards,
-              score: scoreHand(ranks, 'ss'),
-              combos: computeCombos(ssCards),
-              suitType: 'ss',
-            });
           }
         }
       }
     }
   }
 
-  hands.sort((a, b) => b.score - a.score);
+  hands.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (a.suitType !== b.suitType) return a.suitType === 'ds' ? -1 : 1;
+    return a.rankKey < b.rankKey ? -1 : a.rankKey > b.rankKey ? 1 : 0;
+  });
+
   cachedHands = hands;
   return hands;
 }
