@@ -68,16 +68,6 @@ export default function Landing() {
                     </a>
                   </Button>
                 </div>
-                <div className="flex flex-wrap gap-4 text-sm text-muted-foreground pt-2">
-                  <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full bg-green-500"></span>
-                    {t('freePlan')}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full bg-green-500"></span>
-                    {t('noCreditCard')}
-                  </span>
-                </div>
               </div>
               <div className="relative">
                 <div className="relative bg-gradient-to-br from-primary/20 to-primary/5 rounded-2xl p-8 ring-1 ring-black/5 dark:ring-white/10">
