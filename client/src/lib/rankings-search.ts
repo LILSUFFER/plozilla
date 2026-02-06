@@ -421,9 +421,14 @@ function matchesBranch(
 
   // If we have exactly 5 ranks specified, it's an exact match search
   if (totalInclude === 5) {
-    if (totalRanks !== 5) return false;
+    // For exact 5-card search, we must match the distribution of ranks exactly.
+    // E.g. JsTh5dTc4c has J:1, T:2, 5:1, 4:1. totalRanks is always 5 for canonical hands.
     for (const [rank, count] of includeEntries) {
-      if (rankCounts[rank] !== count) return false;
+      if ((rankCounts[rank] || 0) !== count) return false;
+    }
+    // Also ensure no extra ranks exist that aren't in the include list
+    for (const rank of Object.keys(rankCounts)) {
+      if (!(rank in branch.include)) return false;
     }
   } else {
     // Partial pattern match
