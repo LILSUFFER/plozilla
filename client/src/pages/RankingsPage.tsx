@@ -401,7 +401,7 @@ function RankingsTable({ search, t }: { search: string; t: (key: any) => string 
                         {hand.comboCount}
                       </div>
                       <div className="px-2 text-center font-mono text-xs" data-testid={`equity-${hand.rank}`}>
-                        {hand.equity.toFixed(1)}
+                        {(hand.equity * 100).toFixed(2)}%
                       </div>
                       <div className="px-2 text-right font-mono text-xs">
                         {((hand.rank / totalHands) * 100).toFixed(2)}
