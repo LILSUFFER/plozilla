@@ -208,6 +208,18 @@ function expandRankSpan(pattern: string): string[] {
 function parseRankCounts(pattern: string): Record<string, number> {
   const counts: Record<string, number> = {};
   let i = 0;
+  const upperPattern = pattern.toUpperCase();
+  
+  // Check if it's a specific 5-card hand (e.g. JsTh5dTc4c)
+  const fullHandMatch = upperPattern.match(/^([AKQJT2-9][SHDC]){5}$/);
+  if (fullHandMatch) {
+    for (let j = 0; j < 5; j++) {
+      const rank = upperPattern[j * 2];
+      counts[rank] = (counts[rank] || 0) + 1;
+    }
+    return counts;
+  }
+
   while (i < pattern.length) {
     const ch = pattern[i].toUpperCase();
     if (VALID_RANKS.has(ch)) {
@@ -393,7 +405,8 @@ export function parseRankingsSearch(raw: string): SearchResult {
 function matchesBranch(
   rankCounts: Record<string, number>,
   suitType: 'ds' | 'ss',
-  branch: PatternBranch
+  branch: PatternBranch,
+  totalRanks: number
 ): boolean {
   if (branch.suitFilter && suitType !== branch.suitFilter) return false;
 
@@ -403,8 +416,20 @@ function matchesBranch(
     }
   }
 
-  for (const [rank, minCount] of Object.entries(branch.include)) {
-    if ((rankCounts[rank] || 0) < minCount) return false;
+  const includeEntries = Object.entries(branch.include);
+  const totalInclude = includeEntries.reduce((sum, [_, count]) => sum + count, 0);
+
+  // If we have exactly 5 ranks specified, it's an exact match search
+  if (totalInclude === 5) {
+    if (totalRanks !== 5) return false;
+    for (const [rank, count] of includeEntries) {
+      if (rankCounts[rank] !== count) return false;
+    }
+  } else {
+    // Partial pattern match
+    for (const [rank, minCount] of includeEntries) {
+      if ((rankCounts[rank] || 0) < minCount) return false;
+    }
   }
 
   for (const excl of branch.excludes) {
@@ -430,8 +455,13 @@ export function matchesHandByCards(
     return percentile >= search.lo && percentile <= search.hi;
   }
 
+  let totalRanks = 0;
+  for (const count of Object.values(rankCounts)) {
+    totalRanks += count;
+  }
+
   for (const branch of search.branches) {
-    if (matchesBranch(rankCounts, suitType, branch)) return true;
+    if (matchesBranch(rankCounts, suitType, branch, totalRanks)) return true;
   }
 
   return false;
@@ -483,9 +513,14 @@ export function filterAllHands(
 
     const percentile = ((rank + 1) / total) * 100;
 
+    let totalRanks = 0;
+    for (const count of Object.values(rankCounts)) {
+      totalRanks += count;
+    }
+
     let matched = false;
     for (const branch of search.branches) {
-      if (matchesBranch(rankCounts, suitType, branch)) { matched = true; break; }
+      if (matchesBranch(rankCounts, suitType, branch, totalRanks)) { matched = true; break; }
     }
 
     if (matched) result.push(rank);
