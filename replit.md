@@ -11,9 +11,12 @@ A browser-based 5-Card Omaha equity calculator similar to ProPokerTools Oracle. 
   - **Binary format**: PLO5 magic (4 bytes) + 64-byte header + 20 bytes/hand (134,459 hands = 2.69MB)
     - Header: version, numHands, boardsProcessed, villainSamples, avgSamples, minSamples, maxSamples, timestamp
     - Record: 5 card bytes + 1 combo count + 4 equity (f32) + 4 rank (u32) + 4 percentile (f32) + 2 reserved
-  - **Two modes**: `--boards full` (exhaustive C(47,5) boards/hero) or `--boards N` (random board sampling)
-  - **VPS production run**: `--boards full --villain-samples 50 --threads auto` (~4h on 4-core)
+  - **Two modes**: `--boards full` (exhaustive C(47,5)=1,533,939 boards/hero) or `--boards N` (random board sampling)
+  - **Measured throughput**: ~929K showdowns/sec on 8-thread Replit (each showdown = 100 combo evals for hero + 100 for villain)
+  - **Full enumeration is infeasible**: C(47,5)×V=50×134K heroes = 10.3T showdowns → ~128 days at 929K/sec
+  - **Practical VPS production**: `--boards 10000 --villain-samples 10` → 100K showdowns/hero → ~4h on fast 8-core VPS
   - **Quick test**: `--boards 100 --villain-samples 1` (18 seconds for all 134K hands)
+  - **Accuracy command**: `plo5_ranker accuracy --bin file.bin --trials 2000000` — tests 10 hands against unbiased MC
   - **Card encoding conversion**: Rust uses suit×13+rank, Server uses rank×4+suit — converted during binary read
   - **Scripts**: `scripts/precompute.sh` (build + run), `scripts/deploy_rankings.sh` (verify + restart server)
   - **Server**: pure file-based lookup only (`server/rankings-cache.ts`), reads `public/plo5_rankings_prod.bin`
