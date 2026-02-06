@@ -1,0 +1,84 @@
+We are starting Stage-1 production compute on a real VPS.
+
+Goal:
+Get HIGH-QUALITY rankings in ~3–5 hours runtime,
+with expected max equity error ≈ 0.15% vs high-precision Monte Carlo.
+This is NOT the final ultra-precision run — just the first production baseline.
+
+Your task is to prepare a ONE-COMMAND VPS workflow.
+
+REQUIREMENTS
+
+1) Do NOT change the algorithm anymore.
+   The Rust engine, sampling model, and PLO5 evaluation are considered FINAL for Stage-1.
+
+2) Production parameters must be:
+
+   BOARDS = 10000
+   VILLAIN_SAMPLES = 10
+   THREADS = auto (use all CPU cores)
+
+   These values must be configurable via environment variables,
+   but default to the numbers above.
+
+3) Provide two bash scripts:
+
+   scripts/vps_setup.sh
+   scripts/vps_run_stage1.sh
+
+   vps_setup.sh must:
+   - use: set -euo pipefail
+   - install system deps (build-essential, git, curl, pkg-config, libssl-dev)
+   - install Rust non-interactively
+   - print rustc and cargo versions
+
+   vps_run_stage1.sh must:
+   - use: set -euo pipefail
+   - build Rust release binary
+   - run precompute with Stage-1 parameters
+   - write output to:
+       public/plo5_rankings_stage1.bin
+   - verify file exists and is non-empty
+   - print HARD COUNTERS:
+       heroes_processed
+       boards_per_hero
+       villain_samples_per_board
+       total_showdowns
+       elapsed_seconds
+       showdowns_per_second
+
+4) Accuracy sanity check (fast):
+
+   After Stage-1 compute,
+   run built-in accuracy command on TWO benchmark hands:
+
+   - JsTh5dTc4c  (PPT ≈ 53.89)
+   - AcAhTh8d7c  (PPT ≈ 65.85)
+
+   using:
+   trials = 2,000,000
+
+   Print:
+   engine_equity
+   mc_equity
+   absolute_delta
+
+   Do NOT fail the script on delta > 0.15%,
+   just print the numbers clearly.
+
+5) Provide exact VPS copy-paste instructions:
+
+   Only these commands:
+
+   unzip project.zip
+   cd project
+   bash scripts/vps_setup.sh
+   bash scripts/vps_run_stage1.sh
+
+   Nothing more.
+
+6) Do NOT discuss theory.
+   Output ONLY:
+   - the two scripts
+   - the minimal instructions
+   - no extra commentary.
