@@ -264,6 +264,18 @@ function getHandAtRank(rank: number): HandResult | null {
   };
 }
 
+export function getAllHandCards(): { cards: number[]; rank: number; equity: number; comboCount: number }[] {
+  if (!cachedData) return [];
+  const result: { cards: number[]; rank: number; equity: number; comboCount: number }[] = [];
+  for (let i = 0; i < cachedData.totalCanonical; i++) {
+    const hand = getHandAtRank(i);
+    if (hand) {
+      result.push({ cards: hand.cards, rank: hand.rank, equity: hand.equity, comboCount: hand.comboCount });
+    }
+  }
+  return result;
+}
+
 export function getRankingsPage(
   offset: number,
   limit: number,

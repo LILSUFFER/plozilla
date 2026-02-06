@@ -8,16 +8,16 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { TrendingUp, DollarSign, BookOpen, LogOut, Loader2, Trophy, Info, Search, X, AlertTriangle, Copy, Check } from 'lucide-react';
+import { TrendingUp, DollarSign, BookOpen, LogOut, Loader2, Trophy, Info, Search, X, AlertTriangle, Copy, Check, ChevronRight, ChevronDown, Filter } from 'lucide-react';
 import { SiTelegram } from 'react-icons/si';
 import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
 import { useTranslation } from '@/lib/i18n';
 import { Link, useLocation } from 'wouter';
 import { CardChips } from '@/components/CardChip';
+import { classifyHand, matchesCategory, CATEGORY_TREE, type CategoryPath, type CategoryNode, type HandCategory } from '@/lib/hand-categories';
 
 const ROW_HEIGHT = 40;
-const PAGE_SIZE = 200;
 const RANKS_DECODE = '23456789TJQKA';
 const SUITS_DECODE = 'cdhs';
 
@@ -40,13 +40,10 @@ interface ApiHand {
   comboCount: number;
 }
 
-interface ApiResponse {
-  hands: ApiHand[];
-  total: number;
-  totalHands: number;
-  totalCombos: number;
+interface BulkResponse {
   ready: boolean;
-  error?: string;
+  hands: ApiHand[];
+  totalHands: number;
 }
 
 export default function RankingsPage() {
@@ -56,6 +53,8 @@ export default function RankingsPage() {
   const [location] = useLocation();
   const [searchInput, setSearchInput] = useState('');
   const [activeSearch, setActiveSearch] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<CategoryPath>('all');
+  const [showCategorySidebar, setShowCategorySidebar] = useState(true);
   const debounceTimer = useRef<ReturnType<typeof setTimeout>>();
 
   const handleSearchChange = useCallback((value: string) => {
@@ -150,99 +149,189 @@ export default function RankingsPage() {
         </div>
       </header>
 
-      <div className="container mx-auto px-4 py-4 shrink-0">
-        <div className="mb-3">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h2 className="text-xl font-bold flex items-center gap-2">
-              <Trophy className="w-5 h-5" />
-              {t('rankingsTitle')}
-            </h2>
-            <Dialog>
-              <DialogTrigger asChild>
-                <Button variant="ghost" size="sm" className="text-muted-foreground gap-1" data-testid="button-rankings-info">
-                  <Info className="w-4 h-4" />
-                  {t('rankingsInfoButton')}
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
-                <DialogHeader>
-                  <DialogTitle>{t('rankingsInfoTitle')}</DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4 text-sm text-muted-foreground">
-                  <div>
-                    <h4 className="font-semibold text-foreground mb-1">{t('rankingsInfoMethodTitle')}</h4>
-                    <p>{t('rankingsInfoMethod')}</p>
-                  </div>
-                  <div>
-                    <h4 className="font-semibold text-foreground mb-1">{t('rankingsInfoCRNTitle')}</h4>
-                    <p>{t('rankingsInfoCRN')}</p>
-                  </div>
-                  <div>
-                    <h4 className="font-semibold text-foreground mb-1">{t('rankingsInfoCanonTitle')}</h4>
-                    <p>{t('rankingsInfoCanon')}</p>
-                  </div>
-                  <div>
-                    <h4 className="font-semibold text-foreground mb-1">{t('rankingsInfoColumnsTitle')}</h4>
-                    <ul className="list-disc pl-4 space-y-1">
-                      <li>{t('rankingsInfoColumnRank')}</li>
-                      <li>{t('rankingsInfoColumnHand')}</li>
-                      <li>{t('rankingsInfoColumnCombos')}</li>
-                      <li>{t('rankingsInfoColumnEQ')}</li>
-                      <li>{t('rankingsInfoColumnRankPct')}</li>
-                    </ul>
-                  </div>
-                  <div>
-                    <h4 className="font-semibold text-foreground mb-1">{t('rankingsInfoSearchTitle')}</h4>
-                    <p>{t('rankingsInfoSearch')}</p>
-                  </div>
+      <div className="container mx-auto px-4 py-3 shrink-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <h2 className="text-xl font-bold flex items-center gap-2">
+            <Trophy className="w-5 h-5" />
+            {t('rankingsTitle')}
+          </h2>
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button variant="ghost" size="sm" className="text-muted-foreground gap-1" data-testid="button-rankings-info">
+                <Info className="w-4 h-4" />
+                {t('rankingsInfoButton')}
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>{t('rankingsInfoTitle')}</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 text-sm text-muted-foreground">
+                <div>
+                  <h4 className="font-semibold text-foreground mb-1">{t('rankingsInfoMethodTitle')}</h4>
+                  <p>{t('rankingsInfoMethod')}</p>
                 </div>
-              </DialogContent>
-            </Dialog>
-          </div>
-          <p className="text-sm text-muted-foreground mt-1">
-            {t('rankingsDesc')}
-          </p>
+                <div>
+                  <h4 className="font-semibold text-foreground mb-1">{t('rankingsInfoCRNTitle')}</h4>
+                  <p>{t('rankingsInfoCRN')}</p>
+                </div>
+                <div>
+                  <h4 className="font-semibold text-foreground mb-1">{t('rankingsInfoCanonTitle')}</h4>
+                  <p>{t('rankingsInfoCanon')}</p>
+                </div>
+                <div>
+                  <h4 className="font-semibold text-foreground mb-1">{t('rankingsInfoColumnsTitle')}</h4>
+                  <ul className="list-disc pl-4 space-y-1">
+                    <li>{t('rankingsInfoColumnRank')}</li>
+                    <li>{t('rankingsInfoColumnHand')}</li>
+                    <li>{t('rankingsInfoColumnCombos')}</li>
+                    <li>{t('rankingsInfoColumnEQ')}</li>
+                    <li>{t('rankingsInfoColumnRankPct')}</li>
+                  </ul>
+                </div>
+                <div>
+                  <h4 className="font-semibold text-foreground mb-1">{t('rankingsInfoSearchTitle')}</h4>
+                  <p>{t('rankingsInfoSearch')}</p>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground gap-1 ml-auto"
+            onClick={() => setShowCategorySidebar(!showCategorySidebar)}
+            data-testid="button-toggle-categories"
+          >
+            <Filter className="w-4 h-4" />
+            {t('catCategories')}
+          </Button>
         </div>
-
-        <div className="mb-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none z-10" />
-            <Input
-              value={searchInput}
-              onChange={e => handleSearchChange(e.target.value)}
-              placeholder={t('rankingsSearchPlaceholder')}
-              className="pl-9 pr-9"
-              data-testid="input-search-rankings"
-            />
-            <button
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground z-10"
-              onClick={() => { setSearchInput(''); setActiveSearch(''); }}
-              style={{ visibility: searchInput ? 'visible' : 'hidden' }}
-              data-testid="button-clear-search"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
+        <p className="text-sm text-muted-foreground mt-1">
+          {t('rankingsDesc')}
+        </p>
       </div>
 
-      <RankingsTable search={activeSearch} t={t} />
+      <div className="flex-1 min-h-0 container mx-auto px-4 pb-4 flex gap-3">
+        {showCategorySidebar && (
+          <CategorySidebar
+            selected={selectedCategory}
+            onSelect={setSelectedCategory}
+            t={t}
+          />
+        )}
+        <div className="flex-1 min-h-0 flex flex-col">
+          <div className="mb-2">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none z-10" />
+              <Input
+                value={searchInput}
+                onChange={e => handleSearchChange(e.target.value)}
+                placeholder={t('rankingsSearchPlaceholder')}
+                className="pl-9 pr-9"
+                data-testid="input-search-rankings"
+              />
+              <button
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground z-10"
+                onClick={() => { setSearchInput(''); setActiveSearch(''); }}
+                style={{ visibility: searchInput ? 'visible' : 'hidden' }}
+                data-testid="button-clear-search"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+          <RankingsTable search={activeSearch} category={selectedCategory} t={t} />
+        </div>
+      </div>
     </div>
   );
 }
 
-function RankingsTable({ search, t }: { search: string; t: (key: any) => string }) {
+function CategorySidebar({
+  selected,
+  onSelect,
+  t,
+}: {
+  selected: CategoryPath;
+  onSelect: (path: CategoryPath) => void;
+  t: (key: any) => string;
+}) {
+  return (
+    <div className="w-52 shrink-0 border rounded-md overflow-y-auto text-sm" data-testid="category-sidebar">
+      <div className="p-2 border-b bg-muted/30">
+        <span className="font-medium text-xs text-muted-foreground uppercase tracking-wider">{t('catCategories')}</span>
+      </div>
+      <div className="p-1">
+        {CATEGORY_TREE.map(node => (
+          <CategoryTreeNode key={node.path} node={node} selected={selected} onSelect={onSelect} t={t} depth={0} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CategoryTreeNode({
+  node,
+  selected,
+  onSelect,
+  t,
+  depth,
+}: {
+  node: CategoryNode;
+  selected: CategoryPath;
+  onSelect: (path: CategoryPath) => void;
+  t: (key: any) => string;
+  depth: number;
+}) {
+  const isSelected = selected === node.path;
+  const isParentOfSelected = selected.startsWith(node.path + '.');
+  const [expanded, setExpanded] = useState(isParentOfSelected || node.path === 'all');
+  const hasChildren = node.children && node.children.length > 0;
+
+  useEffect(() => {
+    if (isParentOfSelected && !expanded) {
+      setExpanded(true);
+    }
+  }, [isParentOfSelected]);
+
+  return (
+    <div>
+      <button
+        className={`w-full flex items-center gap-1 px-2 py-1.5 rounded-md text-left text-sm transition-colors ${
+          isSelected ? 'bg-primary text-primary-foreground' : 'hover-elevate'
+        }`}
+        style={{ paddingLeft: `${depth * 12 + 8}px` }}
+        onClick={() => {
+          onSelect(node.path);
+          if (hasChildren) setExpanded(!expanded);
+        }}
+        data-testid={`cat-${node.path}`}
+      >
+        {hasChildren ? (
+          expanded ? <ChevronDown className="w-3 h-3 shrink-0" /> : <ChevronRight className="w-3 h-3 shrink-0" />
+        ) : (
+          <span className="w-3 shrink-0" />
+        )}
+        <span className="truncate">{t(node.labelKey)}</span>
+      </button>
+      {hasChildren && expanded && (
+        <div>
+          {node.children!.map(child => (
+            <CategoryTreeNode key={child.path} node={child} selected={selected} onSelect={onSelect} t={t} depth={depth + 1} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RankingsTable({ search, category, t }: { search: string; category: CategoryPath; t: (key: any) => string }) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const pageCacheRef = useRef<Map<string, ApiHand[]>>(new Map());
-  const [loadedPages, setLoadedPages] = useState<Set<number>>(new Set());
-  const fetchingRef = useRef<Set<number>>(new Set());
-  const prevSearchRef = useRef(search);
-  const [filteredCount, setFilteredCount] = useState(0);
-  const [globalTotal, setGlobalTotal] = useState(0);
-  const [ready, setReady] = useState<boolean | null>(null);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [copiedRank, setCopiedRank] = useState<number | null>(null);
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const classificationRef = useRef<Map<number, HandCategory>>(new Map());
+  const prevDataRef = useRef<ApiHand[] | null>(null);
 
   const handleCopy = useCallback((hand: ApiHand) => {
     const notation = cardIndicesToNotation(hand.cards);
@@ -252,42 +341,61 @@ function RankingsTable({ search, t }: { search: string; t: (key: any) => string 
     copyTimeoutRef.current = setTimeout(() => setCopiedRank(null), 1500);
   }, []);
 
-  const { data: initialData, isLoading: initialLoading } = useQuery<ApiResponse>({
-    queryKey: ['/api/rankings', 'initial', search],
+  const { data: bulkData, isLoading } = useQuery<BulkResponse>({
+    queryKey: ['/api/rankings/all'],
     queryFn: async () => {
-      const params = new URLSearchParams({ offset: '0', limit: String(PAGE_SIZE) });
-      if (search.trim()) params.set('search', search);
+      const res = await fetch('/api/rankings/all');
+      return res.json();
+    },
+    staleTime: Infinity,
+  });
+
+  const { data: searchData, isLoading: searchLoading } = useQuery({
+    queryKey: ['/api/rankings', 'search', search],
+    queryFn: async () => {
+      if (!search.trim()) return null;
+      const params = new URLSearchParams({ offset: '0', limit: '200000', search });
       const res = await fetch(`/api/rankings?${params}`);
       return res.json();
     },
+    enabled: !!search.trim(),
+    staleTime: 60000,
   });
 
-  useEffect(() => {
-    if (initialData) {
-      setReady(initialData.ready);
-      setFilteredCount(initialData.total);
-      setGlobalTotal(initialData.totalHands);
-      if (initialData.error) {
-        setErrorMsg(initialData.error);
-      } else {
-        setErrorMsg(null);
+  const allHands = bulkData?.hands || [];
+  const globalTotal = bulkData?.totalHands || 0;
+
+  useMemo(() => {
+    if (allHands.length > 0 && prevDataRef.current !== allHands) {
+      prevDataRef.current = allHands;
+      const map = new Map<number, HandCategory>();
+      for (const hand of allHands) {
+        map.set(hand.rank, classifyHand(hand.cards));
       }
-      if (prevSearchRef.current !== search) {
-        pageCacheRef.current.clear();
-        fetchingRef.current.clear();
-        setLoadedPages(new Set());
-        prevSearchRef.current = search;
-      }
-      if (initialData.ready && initialData.hands.length > 0) {
-        const cacheKey = `${search}:0`;
-        pageCacheRef.current.set(cacheKey, initialData.hands);
-        setLoadedPages(prev => new Set(prev).add(0));
-      }
+      classificationRef.current = map;
     }
-  }, [initialData, search]);
+  }, [allHands]);
+
+  const filteredHands = useMemo(() => {
+    let hands = allHands;
+
+    if (search.trim() && searchData?.hands) {
+      const searchRanks = new Set<number>(searchData.hands.map((h: ApiHand) => h.rank));
+      hands = allHands.filter(h => searchRanks.has(h.rank));
+    }
+
+    if (category !== 'all') {
+      hands = hands.filter(h => {
+        const cat = classificationRef.current.get(h.rank);
+        return cat ? matchesCategory(cat, category) : false;
+      });
+    }
+
+    return hands;
+  }, [allHands, search, searchData, category]);
 
   const virtualizer = useVirtualizer({
-    count: filteredCount,
+    count: filteredHands.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: 30,
@@ -296,45 +404,11 @@ function RankingsTable({ search, t }: { search: string; t: (key: any) => string 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
     virtualizer.scrollToOffset(0);
-  }, [search]);
+  }, [search, category]);
 
   const visibleItems = virtualizer.getVirtualItems();
 
-  useEffect(() => {
-    if (!ready || filteredCount === 0) return;
-
-    const neededPages = new Set<number>();
-    for (const item of visibleItems) {
-      const page = Math.floor(item.index / PAGE_SIZE);
-      const cacheKey = `${search}:${page}`;
-      if (!pageCacheRef.current.has(cacheKey) && !fetchingRef.current.has(page)) {
-        neededPages.add(page);
-      }
-    }
-
-    neededPages.forEach((page) => {
-      fetchingRef.current.add(page);
-      const params = new URLSearchParams({
-        offset: String(page * PAGE_SIZE),
-        limit: String(PAGE_SIZE),
-      });
-      if (search.trim()) params.set('search', search);
-
-      fetch(`/api/rankings?${params}`)
-        .then(res => res.json())
-        .then((data: ApiResponse) => {
-          const cacheKey = `${search}:${page}`;
-          pageCacheRef.current.set(cacheKey, data.hands);
-          fetchingRef.current.delete(page);
-          setLoadedPages(prev => new Set(prev).add(page));
-        })
-        .catch(() => {
-          fetchingRef.current.delete(page);
-        });
-    });
-  }, [visibleItems, ready, search, filteredCount]);
-
-  if (ready === false) {
+  if (bulkData && !bulkData.ready) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-4 px-4" data-testid="rankings-not-ready">
         <AlertTriangle className="w-8 h-8 text-destructive" />
@@ -348,7 +422,7 @@ function RankingsTable({ search, t }: { search: string; t: (key: any) => string 
     );
   }
 
-  if (initialLoading || ready === null) {
+  if (isLoading || (search.trim() && searchLoading)) {
     return (
       <div className="flex-1 flex items-center justify-center" data-testid="rankings-loading">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -356,7 +430,7 @@ function RankingsTable({ search, t }: { search: string; t: (key: any) => string 
     );
   }
 
-  if (filteredCount === 0) {
+  if (filteredHands.length === 0 && allHands.length > 0) {
     return (
       <div className="flex-1 flex items-center justify-center text-muted-foreground">
         {t('rankingsNoResults')}
@@ -365,21 +439,20 @@ function RankingsTable({ search, t }: { search: string; t: (key: any) => string 
   }
 
   return (
-    <div className="flex-1 min-h-0 container mx-auto px-4 pb-4 flex flex-col">
+    <div className="flex-1 min-h-0 flex flex-col">
       <div className="flex items-center gap-2 mb-2 text-sm flex-wrap">
         {search.trim() && (
-          <>
-            <Badge variant="secondary" data-testid="badge-search-label">{search.toUpperCase()}</Badge>
-            <span className="text-muted-foreground" data-testid="text-search-count">
-              {t('rankingsFound')}: <span className="font-semibold text-foreground">{filteredCount.toLocaleString()}</span>
-            </span>
-          </>
+          <Badge variant="secondary" data-testid="badge-search-label">{search.toUpperCase()}</Badge>
         )}
-        {!search.trim() && (
-          <span className="text-muted-foreground">
-            {t('rankingsCanonicalTotal').replace('{n}', globalTotal.toLocaleString())}
-          </span>
+        {category !== 'all' && (
+          <Badge variant="outline" data-testid="badge-category-label">{t(CATEGORY_TREE.find(c => c.path === category)?.labelKey || category.split('.').pop() || '')}</Badge>
         )}
+        <span className="text-muted-foreground" data-testid="text-search-count">
+          {(search.trim() || category !== 'all')
+            ? <>{t('rankingsFound')}: <span className="font-semibold text-foreground">{filteredHands.length.toLocaleString()}</span></>
+            : t('rankingsCanonicalTotal').replace('{n}', globalTotal.toLocaleString())
+          }
+        </span>
       </div>
 
       <div className="border rounded-md flex flex-col flex-1 min-h-0">
@@ -395,10 +468,7 @@ function RankingsTable({ search, t }: { search: string; t: (key: any) => string 
         <div ref={scrollRef} className="flex-1 overflow-auto min-h-0" data-testid="rankings-scroll-container">
           <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
             {visibleItems.map((virtualRow) => {
-              const page = Math.floor(virtualRow.index / PAGE_SIZE);
-              const cacheKey = `${search}:${page}`;
-              const pageData = pageCacheRef.current.get(cacheKey);
-              const hand = pageData?.[virtualRow.index % PAGE_SIZE];
+              const hand = filteredHands[virtualRow.index];
 
               return (
                 <div

@@ -10,6 +10,7 @@ import {
   getTotalCombos,
   filterRankings,
   getRankingsPage,
+  getAllHandCards,
   canonicalKey,
   lookupByCanonicalKey,
   getRankingsStatus,
@@ -37,7 +38,8 @@ export async function registerRoutes(
     }
 
     const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
-    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 100));
+    const maxLimit = req.query.search ? 200000 : 200;
+    const limit = Math.min(maxLimit, Math.max(1, parseInt(req.query.limit as string) || 100));
     const search = (req.query.search as string) || '';
 
     if (search.trim()) {
@@ -51,6 +53,14 @@ export async function registerRoutes(
 
   app.get('/api/rankings/status', (_req, res) => {
     res.json(getRankingsStatus());
+  });
+
+  app.get('/api/rankings/all', (_req, res) => {
+    if (!isRankingsReady()) {
+      return res.json({ ready: false, hands: [] });
+    }
+    const hands = getAllHandCards();
+    return res.json({ ready: true, hands, totalHands: getRankingsTotal() });
   });
 
   app.get('/api/rankings/lookup', (req, res) => {
