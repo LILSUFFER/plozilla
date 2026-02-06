@@ -16,6 +16,7 @@ interface SeatConfig {
   fishVpip?: string;
   fishRake?: number;
   fishLoserate?: number;
+  fish3bet?: boolean;
 }
 
 const FISH_VPIP_PRESETS = [
@@ -65,7 +66,17 @@ function getActiveDistanceClockwise(fromIndex: number, toIndex: number, seats: S
   return activeCount;
 }
 
-function getPositionCoefficient(distance: number): number {
+function getPositionCoefficient(distance: number, is3bet: boolean): number {
+  if (is3bet) {
+    switch (distance) {
+      case 1: return 1.35;
+      case 2: return 1.00;
+      case 3: return 0.75;
+      case 4: return 0.60;
+      case 5: return 0.40;
+      default: return 0;
+    }
+  }
   switch (distance) {
     case 1: return 1.5;
     case 2: return 1.1;
@@ -119,7 +130,7 @@ export function TableEvAnalyzer() {
         const rake = preset?.rake || seat.fishRake || 0;
         
         const dist = getActiveDistanceClockwise(seat.seatIndex, heroSeat.seatIndex, seats);
-        const posCoef = getPositionCoefficient(dist);
+        const posCoef = getPositionCoefficient(dist, !!seat.fish3bet);
         
         const realLoserate = loserate - rake;
         const evFromThisFish = (realLoserate / nReg) * posCoef;
@@ -185,6 +196,7 @@ export function TableEvAnalyzer() {
       fishVpip: type === 'Fish' ? '90' : undefined,
       fishRake: type === 'Fish' ? preset?.rake : undefined,
       fishLoserate: type === 'Fish' ? preset?.loserate : undefined,
+      fish3bet: type === 'Fish' ? false : undefined,
     });
   };
 
@@ -366,7 +378,9 @@ export function TableEvAnalyzer() {
                       {seat.type === 'Empty' ? 'EMPTY' : seat.type.toUpperCase()}
                     </span>
                     {isFish && (
-                      <span className="text-[9px] font-medium">{seat.fishVpip}%</span>
+                      <span className="text-[9px] font-medium">
+                        {seat.fishVpip}%{seat.fish3bet ? ' 3b' : ''}
+                      </span>
                     )}
                   </div>
 
@@ -432,6 +446,34 @@ export function TableEvAnalyzer() {
                         ))}
                       </SelectContent>
                     </Select>
+                  </div>
+
+                  <div
+                    onClick={() => setDialogConfig({ ...dialogConfig, fish3bet: !dialogConfig.fish3bet })}
+                    className={cn(
+                      "cursor-pointer rounded-lg border p-3 flex items-center justify-between transition-all",
+                      dialogConfig.fish3bet
+                        ? "border-red-500 bg-red-500/10 text-red-500 ring-2 ring-red-500/20"
+                        : "border-border hover:border-red-500/50"
+                    )}
+                    data-testid="toggle-fish-3bet"
+                  >
+                    <div>
+                      <span className="font-semibold text-sm">3bet 30%+</span>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">Reduced position coefficients</p>
+                    </div>
+                    <div className={cn(
+                      "w-5 h-5 rounded border-2 flex items-center justify-center transition-all",
+                      dialogConfig.fish3bet
+                        ? "border-red-500 bg-red-500"
+                        : "border-muted-foreground/30"
+                    )}>
+                      {dialogConfig.fish3bet && (
+                        <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
