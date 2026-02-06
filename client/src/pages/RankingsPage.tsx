@@ -14,73 +14,7 @@ import { useTranslation } from '@/lib/i18n';
 import { Link, useLocation } from 'wouter';
 import { CardChips } from '@/components/CardChip';
 import { generateRankedHands, type RankedHand } from '@/lib/hand-rankings';
-
-type SearchResult =
-  | { type: 'hand'; rankCounts: Record<string, number>; suitFilter?: 'ds' | 'ss' }
-  | { type: 'percent'; lo: number; hi: number }
-  | null;
-
-const VALID_RANKS = new Set(['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2']);
-
-function parseSearch(raw: string): SearchResult {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-
-  const pctRange = trimmed.match(/^(\d+(?:\.\d+)?)\s*%\s*[-–—]\s*(\d+(?:\.\d+)?)\s*%$/);
-  if (pctRange) {
-    const a = parseFloat(pctRange[1]);
-    const b = parseFloat(pctRange[2]);
-    if (a >= 0 && b <= 100 && a <= b) return { type: 'percent', lo: a, hi: b };
-  }
-
-  const pctSingle = trimmed.match(/^(\d+(?:\.\d+)?)\s*%$/);
-  if (pctSingle) {
-    const v = parseFloat(pctSingle[1]);
-    if (v >= 0 && v <= 100) return { type: 'percent', lo: 0, hi: v };
-  }
-
-  let upper = trimmed.toUpperCase();
-  let suitFilter: 'ds' | 'ss' | undefined;
-  if (upper.endsWith('DS')) {
-    suitFilter = 'ds';
-    upper = upper.slice(0, -2).trim();
-  } else if (upper.endsWith('SS')) {
-    suitFilter = 'ss';
-    upper = upper.slice(0, -2).trim();
-  }
-
-  if (!upper) return suitFilter ? { type: 'hand', rankCounts: {}, suitFilter } : null;
-
-  const rankCounts: Record<string, number> = {};
-  for (const ch of upper) {
-    if (!VALID_RANKS.has(ch)) return null;
-    rankCounts[ch] = (rankCounts[ch] || 0) + 1;
-  }
-
-  return { type: 'hand', rankCounts, suitFilter };
-}
-
-function handMatchesSearch(hand: RankedHand, search: SearchResult, totalHands: number, handIndex: number): boolean {
-  if (!search) return true;
-
-  if (search.type === 'percent') {
-    const pct = ((handIndex + 1) / totalHands) * 100;
-    return pct >= search.lo && pct <= search.hi;
-  }
-
-  if (search.suitFilter && hand.suitType !== search.suitFilter) return false;
-
-  const handRankCounts: Record<string, number> = {};
-  for (const card of hand.cards) {
-    handRankCounts[card.rank] = (handRankCounts[card.rank] || 0) + 1;
-  }
-
-  for (const [rank, count] of Object.entries(search.rankCounts)) {
-    if ((handRankCounts[rank] || 0) < count) return false;
-  }
-
-  return true;
-}
+import { parseRankingsSearch, matchesHandGroup } from '@/lib/rankings-search';
 
 const ROW_HEIGHT = 44;
 
@@ -89,15 +23,38 @@ export default function RankingsPage() {
   const { toast } = useToast();
   const { t } = useTranslation();
   const [location] = useLocation();
-  const [ready, setReady] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const hands = useMemo(() => {
-    const result = generateRankedHands();
-    setReady(true);
-    return result;
+  const hands = useMemo(() => generateRankedHands(), []);
+  const ready = hands.length > 0;
+
+  const parsed = useMemo(() => parseRankingsSearch(searchInput), [searchInput]);
+  const isSearchActive = parsed !== null;
+
+  const filteredHands = useMemo((): { hand: RankedHand; originalIndex: number }[] => {
+    if (!parsed) return hands.map((hand, i) => ({ hand, originalIndex: i }));
+    return hands
+      .map((hand, i) => ({ hand, originalIndex: i }))
+      .filter(({ hand, originalIndex }) => matchesHandGroup(hand, parsed, hands.length, originalIndex));
+  }, [hands, parsed]);
+
+  const totalAll = hands.length;
+  const totalFiltered = filteredHands.length;
+
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchInput(value);
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
   }, []);
+
+  const searchLabel = useMemo(() => {
+    if (!parsed) return '';
+    if (parsed.type === 'percent') {
+      if (parsed.lo === 0) return t('rankingsTopPercent').replace('{n}', String(parsed.hi));
+      return t('rankingsPercentRange').replace('{a}', String(parsed.lo)).replace('{b}', String(parsed.hi));
+    }
+    return parsed.label;
+  }, [parsed, t]);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -134,39 +91,6 @@ export default function RankingsPage() {
     { path: '/app/rankings', label: t('navRankings'), icon: Trophy },
     { path: '/app/learn', label: t('navLearn'), icon: BookOpen },
   ];
-
-  const parsed = useMemo(() => parseSearch(searchInput), [searchInput]);
-  const isSearchActive = parsed !== null;
-
-  const filteredHands = useMemo((): { hand: RankedHand; originalIndex: number }[] => {
-    if (!parsed) return hands.map((hand, i) => ({ hand, originalIndex: i }));
-    return hands
-      .map((hand, i) => ({ hand, originalIndex: i }))
-      .filter(({ hand, originalIndex }) => handMatchesSearch(hand, parsed, hands.length, originalIndex));
-  }, [hands, parsed]);
-
-  const totalAll = hands.length;
-  const totalFiltered = filteredHands.length;
-
-  const handleSearchChange = useCallback((value: string) => {
-    setSearchInput(value);
-    if (scrollRef.current) scrollRef.current.scrollTop = 0;
-  }, []);
-
-  const searchLabel = useMemo(() => {
-    if (!parsed) return '';
-    if (parsed.type === 'percent') {
-      if (parsed.lo === 0) return t('rankingsTopPercent').replace('{n}', String(parsed.hi));
-      return t('rankingsPercentRange').replace('{a}', String(parsed.lo)).replace('{b}', String(parsed.hi));
-    }
-    const parts: string[] = [];
-    for (const [rank, count] of Object.entries(parsed.rankCounts)) {
-      parts.push(rank.repeat(count));
-    }
-    let label = parts.join('');
-    if (parsed.suitFilter) label += ` ${parsed.suitFilter.toUpperCase()}`;
-    return label;
-  }, [parsed, t]);
 
   return (
     <div className="h-screen bg-background flex flex-col">
