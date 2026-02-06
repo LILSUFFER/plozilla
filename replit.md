@@ -5,34 +5,19 @@
 A browser-based 5-Card Omaha equity calculator similar to ProPokerTools Oracle. The calculator supports board input in valid poker states (Preflop: 0, Flop: 3, Turn: 4, River: 5 cards), multiple player hands (5 cards each), concatenated card notation (e.g., "7s6hJdQc8c"), and performs exhaustive equity calculations with accurate Omaha hand evaluation (exactly 2 hole cards + 3 board cards). Built as a client-side React TypeScript application.
 
 ## Recent Changes (Feb 2026)
-- **Canonical Hand Rankings — Offline/Online Separation** (Feb 2026): ProPokerTools-style ranking with suit canonicalization
-  - Strict offline/online architecture: ZERO equity calculations at runtime
-  - **Quasi-exact precompute (v2, unbiased MC villain)**: `scripts/precompute_rankings_quasi_exact.ts` (run via `npx tsx scripts/precompute_rankings_quasi_exact.ts`)
-    - Board-centric enumeration: iterates ALL C(52,5) = 2,598,960 boards (or sampled subset)
-    - Per board per hero: samples K villain hands from correct 42-card pool (52 - 5 board - 5 hero)
-    - **Unbiased**: villain never overlaps hero cards, eliminates ~0.3-1.0% systematic bias from v1
-    - Fisher-Yates shuffle for villain sampling, configurable K via VILLAIN_SAMPLES env var
-    - Worker thread parallelism (NUM_WORKERS env var), ESM-compatible with fileURLToPath fallback
-    - Board sampling: BOARD_SAMPLE_RATE env var (0.001=quick test, 1.0=full)
-    - Outputs `public/plo5_rankings_quasi_v1.json.gz` (version 2, method: quasi-exact-board-enum-mc-villain)
-    - Each record: hand_key, card0-4, combo_count, equity, rank, percentile
-  - **Production file** (Feb 2026): Generated via chunked multi-pass computation
-    - 7 passes (offsets 0-6) at boardSampleRate=0.005, villainSamples=1
-    - 93,524 total boards processed, 55,022 avg samples per hand (min 45K, max 57K)
-    - Standard deviation ~0.2% per hand — production quality
-    - Chunked computation scripts: `/tmp/chunk_compute.mjs`, `/tmp/merge_chunks.mjs`
-    - Quality guard: rejects files with <10K samples/hand (unless ALLOW_TEST_RANKINGS=true)
-  - **Validation CLI**: `scripts/check_equity_vs_random.ts` — compares unbiased MC (mode A) vs biased histogram (mode B)
-    - Usage: `npx tsx scripts/check_equity_vs_random.ts "Js Th 5d Tc 4c" --trials 100000`
-    - Confirms JsTh5dTc4c: unbiased MC = 53.87% (matches PPT 53.89%), biased histogram = 53.16% (0.71% off)
-  - **MC precompute (v4, legacy)**: `scripts/precompute_canonical_rankings_v4.ts` (run via `npm run precompute:rankings`)
-    - 10,000 Monte Carlo trials per canonical hand using WASM evaluator
-    - Outputs `public/plo5_rankings_v4.json.gz`
-  - **Runtime server**: pure file-based lookup only (`server/rankings-cache.ts`)
-    - Loads from `public/plo5_rankings_quasi_v1.json.gz` (preferred) or `plo5_rankings_v4.json.gz` (fallback)
-    - Zero simulation/calculation code in server — `calculationCalls` always 0
-    - If file missing, returns clear error, never seeds
-  - **Validation**: `scripts/validate_rankings.ts` — compares quasi-exact vs 200K MC trials for sample hands
+- **Native Rust Engine for Hand Rankings** (Feb 2026): High-performance PLO5 ranking engine
+  - **Engine**: `engine-rust/` — native Rust CLI (`plo5_ranker`) with Two Plus Two lookup table
+  - **Commands**: precompute, baseline, validate, info
+  - **Binary format**: PLO5 magic (4 bytes) + 64-byte header + 20 bytes/hand (134,459 hands = 2.69MB)
+    - Header: version, numHands, boardsProcessed, villainSamples, avgSamples, minSamples, maxSamples, timestamp
+    - Record: 5 card bytes + 1 combo count + 4 equity (f32) + 4 rank (u32) + 4 percentile (f32) + 2 reserved
+  - **Two modes**: `--boards full` (exhaustive C(47,5) boards/hero) or `--boards N` (random board sampling)
+  - **VPS production run**: `--boards full --villain-samples 50 --threads auto` (~4h on 4-core)
+  - **Quick test**: `--boards 100 --villain-samples 1` (18 seconds for all 134K hands)
+  - **Card encoding conversion**: Rust uses suit×13+rank, Server uses rank×4+suit — converted during binary read
+  - **Scripts**: `scripts/precompute.sh` (build + run), `scripts/deploy_rankings.sh` (verify + restart server)
+  - **Server**: pure file-based lookup only (`server/rankings-cache.ts`), reads `public/plo5_rankings_prod.bin`
+  - **Legacy JS scripts**: `scripts/precompute_rankings_quasi_exact.ts`, `scripts/precompute_canonical_rankings_v4.ts` (superseded)
   - API: `/api/rankings` (paginated with search), `/api/rankings/status`, `/api/rankings/lookup`
   - Frontend shows 134K canonical hands with combo count column
   - Each canonical hand shows: rank, cards (canonical suits), combos (4-24), equity %, percentile
