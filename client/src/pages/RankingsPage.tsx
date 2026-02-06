@@ -198,7 +198,8 @@ function RankingsTable({ search, t }: { search: string; t: (key: any) => string 
   const [loadedPages, setLoadedPages] = useState<Set<number>>(new Set());
   const fetchingRef = useRef<Set<number>>(new Set());
   const prevSearchRef = useRef(search);
-  const [totalHands, setTotalHands] = useState(0);
+  const [filteredCount, setFilteredCount] = useState(0);
+  const [globalTotal, setGlobalTotal] = useState(0);
   const [ready, setReady] = useState<boolean | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [copiedRank, setCopiedRank] = useState<number | null>(null);
@@ -225,7 +226,8 @@ function RankingsTable({ search, t }: { search: string; t: (key: any) => string 
   useEffect(() => {
     if (initialData) {
       setReady(initialData.ready);
-      setTotalHands(initialData.total);
+      setFilteredCount(initialData.total);
+      setGlobalTotal(initialData.totalHands);
       if (initialData.error) {
         setErrorMsg(initialData.error);
       } else {
@@ -246,7 +248,7 @@ function RankingsTable({ search, t }: { search: string; t: (key: any) => string 
   }, [initialData, search]);
 
   const virtualizer = useVirtualizer({
-    count: totalHands,
+    count: filteredCount,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: 30,
@@ -260,7 +262,7 @@ function RankingsTable({ search, t }: { search: string; t: (key: any) => string 
   const visibleItems = virtualizer.getVirtualItems();
 
   useEffect(() => {
-    if (!ready || totalHands === 0) return;
+    if (!ready || filteredCount === 0) return;
 
     const neededPages = new Set<number>();
     for (const item of visibleItems) {
@@ -291,7 +293,7 @@ function RankingsTable({ search, t }: { search: string; t: (key: any) => string 
           fetchingRef.current.delete(page);
         });
     });
-  }, [visibleItems, ready, search, totalHands]);
+  }, [visibleItems, ready, search, filteredCount]);
 
   if (ready === false) {
     return (
@@ -315,7 +317,7 @@ function RankingsTable({ search, t }: { search: string; t: (key: any) => string 
     );
   }
 
-  if (totalHands === 0) {
+  if (filteredCount === 0) {
     return (
       <div className="flex-1 flex items-center justify-center text-muted-foreground">
         {t('rankingsNoResults')}
@@ -330,13 +332,13 @@ function RankingsTable({ search, t }: { search: string; t: (key: any) => string 
           <>
             <Badge variant="secondary" data-testid="badge-search-label">{search.toUpperCase()}</Badge>
             <span className="text-muted-foreground" data-testid="text-search-count">
-              {t('rankingsFound')}: <span className="font-semibold text-foreground">{totalHands.toLocaleString()}</span>
+              {t('rankingsFound')}: <span className="font-semibold text-foreground">{filteredCount.toLocaleString()}</span>
             </span>
           </>
         )}
         {!search.trim() && (
           <span className="text-muted-foreground">
-            {t('rankingsCanonicalTotal').replace('{n}', totalHands.toLocaleString())}
+            {t('rankingsCanonicalTotal').replace('{n}', globalTotal.toLocaleString())}
           </span>
         )}
       </div>
@@ -402,7 +404,7 @@ function RankingsTable({ search, t }: { search: string; t: (key: any) => string 
                         {(hand.equity * 100).toFixed(2)}%
                       </div>
                       <div className="px-2 text-right font-mono text-xs">
-                        {((hand.rank / totalHands) * 100).toFixed(2)}
+                        {((hand.rank / globalTotal) * 100).toFixed(2)}
                       </div>
                     </>
                   ) : (
