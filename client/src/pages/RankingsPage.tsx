@@ -1,13 +1,12 @@
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { LanguageToggle } from '@/components/LanguageToggle';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { TrendingUp, DollarSign, BookOpen, LogOut, Loader2, Trophy, Info, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Search, X } from 'lucide-react';
+import { TrendingUp, DollarSign, BookOpen, LogOut, Loader2, Trophy, Info, Search, X } from 'lucide-react';
 import { SiTelegram } from 'react-icons/si';
 import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
@@ -83,15 +82,16 @@ function handMatchesSearch(hand: RankedHand, search: SearchResult, totalHands: n
   return true;
 }
 
+const ROW_HEIGHT = 44;
+
 export default function RankingsPage() {
   const { user, isLoading, isAuthenticated, logout } = useAuth();
   const { toast } = useToast();
   const { t } = useTranslation();
   const [location] = useLocation();
-  const [page, setPage] = useState(1);
-  const [perPage, setPerPage] = useState(100);
   const [ready, setReady] = useState(false);
   const [searchInput, setSearchInput] = useState('');
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const hands = useMemo(() => {
     const result = generateRankedHands();
@@ -146,23 +146,11 @@ export default function RankingsPage() {
   }, [hands, parsed]);
 
   const totalAll = hands.length;
-  const totalFiltered = isSearchActive ? filteredHands.length : totalAll;
-  const totalPages = Math.ceil(totalFiltered / perPage);
-  const startIdx = (page - 1) * perPage;
-  const endIdx = Math.min(startIdx + perPage, totalFiltered);
-
-  const pageItems = useMemo(() => {
-    return filteredHands.slice(startIdx, endIdx);
-  }, [filteredHands, startIdx, endIdx]);
-
-  const handlePerPageChange = (value: string) => {
-    setPerPage(Number(value));
-    setPage(1);
-  };
+  const totalFiltered = filteredHands.length;
 
   const handleSearchChange = useCallback((value: string) => {
     setSearchInput(value);
-    setPage(1);
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
   }, []);
 
   const searchLabel = useMemo(() => {
@@ -181,7 +169,7 @@ export default function RankingsPage() {
   }, [parsed, t]);
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="h-screen bg-background flex flex-col">
       <header className="border-b bg-card sticky top-0 z-50">
         <div className="container mx-auto px-4 py-3 flex items-center justify-between gap-4">
           <a href="/" className="flex items-center gap-3">
@@ -228,8 +216,8 @@ export default function RankingsPage() {
         </div>
       </header>
       
-      <main className="container mx-auto px-4 py-6 flex-1">
-        <div className="mb-4">
+      <div className="container mx-auto px-4 py-4 shrink-0">
+        <div className="mb-3">
           <h2 className="text-xl font-bold flex items-center gap-2">
             <Trophy className="w-5 h-5" />
             {t('rankingsTitle')}
@@ -237,12 +225,12 @@ export default function RankingsPage() {
           <p className="text-sm text-muted-foreground mt-1">{t('rankingsDesc').replace('{n}', totalAll.toLocaleString())}</p>
         </div>
 
-        <div className="flex items-start gap-2 p-3 rounded-md bg-muted/50 text-sm text-muted-foreground mb-4">
+        <div className="flex items-start gap-2 p-3 rounded-md bg-muted/50 text-sm text-muted-foreground mb-3">
           <Info className="w-4 h-4 mt-0.5 shrink-0" />
           <span>{t('rankingsNote')}</span>
         </div>
 
-        <div className="mb-4">
+        <div className="mb-3">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
             <Input
@@ -264,153 +252,126 @@ export default function RankingsPage() {
               </Button>
             )}
           </div>
-          {isSearchActive && (
-            <div className="flex items-center gap-2 mt-2 text-sm">
-              <Badge variant="secondary" data-testid="badge-search-label">{searchLabel}</Badge>
-              <span className="text-muted-foreground" data-testid="text-search-count">
-                {t('rankingsFound')}: <span className="font-semibold text-foreground">{totalFiltered.toLocaleString()}</span>
+          <div className="flex items-center gap-2 mt-2 text-sm flex-wrap">
+            {isSearchActive && (
+              <>
+                <Badge variant="secondary" data-testid="badge-search-label">{searchLabel}</Badge>
+                <span className="text-muted-foreground" data-testid="text-search-count">
+                  {t('rankingsFound')}: <span className="font-semibold text-foreground">{totalFiltered.toLocaleString()}</span>
+                </span>
+              </>
+            )}
+            {!isSearchActive && (
+              <span className="text-muted-foreground">
+                {t('rankingsTotal')}: <span className="font-semibold text-foreground">{totalAll.toLocaleString()}</span>
               </span>
-            </div>
-          )}
+            )}
+          </div>
+        </div>
+      </div>
+
+      {!ready ? (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="w-6 h-6 animate-spin text-primary mr-2" />
+          <span className="text-muted-foreground">{t('rankingsGenerating')}</span>
+        </div>
+      ) : (
+        <VirtualTable
+          items={filteredHands}
+          totalAll={totalAll}
+          scrollRef={scrollRef}
+          t={t}
+        />
+      )}
+    </div>
+  );
+}
+
+function VirtualTable({
+  items,
+  totalAll,
+  scrollRef,
+  t,
+}: {
+  items: { hand: RankedHand; originalIndex: number }[];
+  totalAll: number;
+  scrollRef: React.RefObject<HTMLDivElement | null>;
+  t: (key: any) => string;
+}) {
+  const virtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 30,
+  });
+
+  if (items.length === 0) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-muted-foreground">
+        {t('rankingsNoResults')}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 min-h-0 container mx-auto px-4 pb-4 flex flex-col">
+      <div className="border rounded-md flex flex-col flex-1 min-h-0">
+        <div className="grid grid-cols-[4rem_1fr_3.5rem_4rem_4rem] text-xs font-medium text-muted-foreground border-b bg-muted/30 shrink-0">
+          <div className="px-2 py-2 text-center">{t('rankingsRank')}</div>
+          <div className="px-2 py-2">{t('rankingsHand')}</div>
+          <div className="px-2 py-2 text-center">{t('rankingsType')}</div>
+          <div className="px-2 py-2 text-center">{t('rankingsCombos')}</div>
+          <div className="px-2 py-2 text-right">{t('rankingsPercentile')}</div>
         </div>
 
-        {!ready ? (
-          <div className="flex items-center justify-center py-20">
-            <Loader2 className="w-6 h-6 animate-spin text-primary mr-2" />
-            <span className="text-muted-foreground">{t('rankingsGenerating')}</span>
+        <div ref={scrollRef as React.RefObject<HTMLDivElement>} className="flex-1 overflow-auto min-h-0" data-testid="rankings-scroll-container">
+          <div
+            style={{ height: virtualizer.getTotalSize(), position: 'relative' }}
+          >
+            {virtualizer.getVirtualItems().map((virtualRow) => {
+              const { hand, originalIndex } = items[virtualRow.index];
+              const rank = originalIndex + 1;
+              const percentile = ((rank / totalAll) * 100).toFixed(1);
+              return (
+                <div
+                  key={virtualRow.key}
+                  data-testid={`ranking-row-${rank}`}
+                  className="grid grid-cols-[4rem_1fr_3.5rem_4rem_4rem] items-center border-b last:border-b-0 text-sm"
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: `${virtualRow.size}px`,
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  <div className="px-2 text-center font-mono text-muted-foreground text-xs">
+                    {rank}
+                  </div>
+                  <div className="px-2">
+                    <CardChips cards={hand.cards} size="sm" />
+                  </div>
+                  <div className="px-2 text-center">
+                    <Badge 
+                      variant={hand.suitType === 'ds' ? 'default' : 'secondary'}
+                      className="text-xs"
+                    >
+                      {hand.suitType === 'ds' ? t('rankingsDS') : t('rankingsSS')}
+                    </Badge>
+                  </div>
+                  <div className="px-2 text-center font-mono text-xs">
+                    {hand.combos}
+                  </div>
+                  <div className="px-2 text-right font-mono text-xs">
+                    {percentile}
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        ) : (
-          <>
-            <div className="flex flex-wrap items-center justify-between gap-4 mb-3">
-              <div className="text-sm text-muted-foreground">
-                {t('rankingsTotal')}: <span className="font-semibold text-foreground">{totalAll.toLocaleString()}</span>
-                {isSearchActive && (
-                  <>
-                    {' · '}
-                    {t('rankingsFound')}: <span className="font-semibold text-foreground">{totalFiltered.toLocaleString()}</span>
-                  </>
-                )}
-                {totalFiltered > 0 && (
-                  <>
-                    {' · '}
-                    {t('rankingsShowing')} <span className="font-semibold text-foreground">{startIdx + 1}-{endIdx}</span>
-                  </>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">{t('rankingsPerPage')}:</span>
-                <Select value={String(perPage)} onValueChange={handlePerPageChange}>
-                  <SelectTrigger className="w-20" data-testid="select-per-page">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="50">50</SelectItem>
-                    <SelectItem value="100">100</SelectItem>
-                    <SelectItem value="200">200</SelectItem>
-                    <SelectItem value="500">500</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="border rounded-md">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-20 text-center">{t('rankingsRank')}</TableHead>
-                    <TableHead>{t('rankingsHand')}</TableHead>
-                    <TableHead className="w-16 text-center">{t('rankingsType')}</TableHead>
-                    <TableHead className="w-20 text-center">{t('rankingsCombos')}</TableHead>
-                    <TableHead className="w-20 text-right">{t('rankingsPercentile')}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {pageItems.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">
-                        {t('rankingsNoResults')}
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    pageItems.map(({ hand, originalIndex }) => {
-                      const rank = originalIndex + 1;
-                      const percentile = ((rank / totalAll) * 100).toFixed(1);
-                      return (
-                        <TableRow key={`${rank}-${hand.suitType}`} data-testid={`ranking-row-${rank}`}>
-                          <TableCell className="text-center font-mono text-muted-foreground">
-                            {rank}
-                          </TableCell>
-                          <TableCell>
-                            <CardChips cards={hand.cards} size="sm" />
-                          </TableCell>
-                          <TableCell className="text-center">
-                            <Badge 
-                              variant={hand.suitType === 'ds' ? 'default' : 'secondary'}
-                              className="text-xs"
-                            >
-                              {hand.suitType === 'ds' ? t('rankingsDS') : t('rankingsSS')}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-center font-mono">
-                            {hand.combos}
-                          </TableCell>
-                          <TableCell className="text-right font-mono">
-                            {percentile}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-
-            <div className="flex items-center justify-between gap-4 mt-4 flex-wrap">
-              <div className="text-sm text-muted-foreground">
-                {page} / {totalPages}
-              </div>
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setPage(1)}
-                  disabled={page <= 1}
-                  data-testid="button-first-page"
-                >
-                  <ChevronsLeft className="w-4 h-4" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
-                  disabled={page <= 1}
-                  data-testid="button-prev-page"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                  disabled={page >= totalPages}
-                  data-testid="button-next-page"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setPage(totalPages)}
-                  disabled={page >= totalPages}
-                  data-testid="button-last-page"
-                >
-                  <ChevronsRight className="w-4 h-4" />
-                </Button>
-              </div>
-            </div>
-          </>
-        )}
-      </main>
+        </div>
+      </div>
     </div>
   );
 }
