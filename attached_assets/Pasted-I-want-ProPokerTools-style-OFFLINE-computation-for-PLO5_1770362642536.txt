@@ -1,0 +1,72 @@
+I want ProPokerTools-style OFFLINE computation for PLO5 hand rankings vs random opponent.
+NO per-hand Monte Carlo as the primary method. MC is allowed ONLY as a fallback for validation, not as the core.
+
+GOAL
+Compute equity vs random for PLO5 starting hands and store results for lookup-only runtime.
+We must rank ~134,459 canonical (suit-isomorphic) PLO5 hands.
+
+CORE REQUIREMENTS (MUST)
+1) Canonicalization:
+   - Implement canonicalize(hand) -> canonical_hand_key so suit-isomorphic hands map to one key.
+   - Use exactly one canonical representative per class for computation and store the result by key.
+
+2) Super fast evaluator:
+   - Use the existing 5-card evaluator lookup tables (hand-ranks.bin) + WASM/C++/Rust implementation.
+   - PLO5 rule: exactly 2 from hand + 3 from board.
+   - For each board, hero_value = max over 10 (2-of-5) × 10 (3-of-5) = 100 eval5 calls (must be optimized).
+   - Same for villain.
+
+3) OFFLINE exact/quasi-exact algorithm (no per-hand MC):
+   Implement an offline pipeline that computes equity vs random by enumeration + aggregation:
+
+   A) Precompute all possible 5-card boards:
+      - Enumerate all C(52,5) boards (2,598,960).
+      - For each board, compute a compact representation that allows fast exclusion of hero/villain overlaps.
+
+   B) For a given hero canonical hand H:
+      - Consider only boards that do not overlap with H (skip overlaps via bitmasks).
+      - For each valid board B:
+         - Evaluate hero_value(H,B) once.
+         - Then compute villain outcomes aggregated over ALL possible villain hands V from remaining cards (52 - H - B):
+            * villain hands are 5-card combos from remaining deck.
+            * We need total win/tie/loss counts (or summed equity) over all V.
+         - Crucial: do NOT loop over villain hands naively for every hero+board.
+           We need caching/aggregation to reuse work.
+
+   C) Caching / tables (MANDATORY to be feasible):
+      - Precompute all 2-card combos (C(52,2)=1326) and their bitmasks.
+      - Precompute all 3-card combos from a given board (10 combos) once per board.
+      - For villain evaluation, build reusable caches keyed by:
+          - board B (or its 3-card subsets),
+          - and (optional) a reduced “board signature”.
+      - Use memoization so repeated subcomputations across heroes are reused.
+
+   D) Parallelism:
+      - Offline must use worker threads / multiprocessing.
+      - Split work by canonical hand blocks and write incremental checkpoints.
+
+4) Output:
+   - Produce a deployable file: public/plo5_rankings_exact_v1.json.gz (or .bin).
+   - Each record:
+     { hand_key, equity, rank, percentile }
+   - Runtime MUST remain lookup-only (no compute).
+
+ACCEPTANCE CRITERIA
+- Runtime/server code contains ZERO simulation / enumeration.
+- Offline algorithm is not MC-based per hand (no “TRIALS_PER_HAND for each hand”).
+- Provide a clear technical explanation of the chosen enumeration + caching approach, with complexity estimates.
+- Provide code that runs offline and outputs the rankings file.
+
+DELIVERABLES
+1) A design note explaining the algorithm and caches/tables.
+2) Offline code (Rust/C++ preferred; TS acceptable only if performance is demonstrated).
+3) A small correctness test:
+   - Compare exact/quasi-exact results for a sample of hands against MC(>=200k) to validate.
+4) A runtime loader that reads the produced file and serves /api/rankings lookup.
+
+IMPORTANT NOTES
+- If fully exact enumeration over all villain hands is too heavy, implement a quasi-exact approach:
+  * enumerate all boards exactly,
+  * and for villain, use variance-reduced sampling with common-random-numbers + stratification,
+    BUT still no per-hand independent MC with huge trials.
+- Keep the implementation memory-safe and checkpointable.

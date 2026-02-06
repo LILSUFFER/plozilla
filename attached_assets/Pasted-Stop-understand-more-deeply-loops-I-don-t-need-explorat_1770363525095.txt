@@ -1,0 +1,45 @@
+Stop “understand more deeply” loops. I don’t need exploration; I need an implementable plan + first working iteration.
+
+You must deliver in THIS ORDER:
+
+1) A short DESIGN DOC (max 1 page) that answers:
+   - What is the exact target we can realistically compute offline for PLO5 vs random?
+   - What is the computational complexity and why it fits?
+   - What caches/tables are used and what is stored on disk?
+   - What is the output file schema and path?
+
+2) Implement ITERATION 1 (must run end-to-end):
+   - Keep runtime lookup-only.
+   - Offline script produces a rankings file and the site loads it.
+
+IMPORTANT: Fully exact hero vs random 5-card villain across all boards is likely too heavy.
+So implement the ProPokerTools-style “quasi-exact” approach that is realistic:
+
+A) Enumerate ALL boards exactly:
+   - Iterate through all C(52,5) boards.
+   - For each board, evaluate hero strength EXACTLY (PLO5 = max over 2-from-hand + 3-from-board).
+   - Use bitmasks to skip overlaps fast.
+
+B) Villain handling must NOT be naive per-hand MC.
+   Use variance-reduced sampling that is shared and stratified:
+   - Common Random Numbers (CRN): use the same villain samples per board across all hands (as much as possible).
+   - Stratify villain by key features (e.g., rank pattern / suitedness buckets) and sample proportionally.
+   - Store the board-level sampled villain set (or RNG seeds) so results are reproducible and comparable.
+   This is “quasi-exact” and produces stable rankings without 600k independent trials per hand.
+
+C) Adaptive refinement:
+   - Pass 1: low samples to get rough ranking.
+   - Pass 2: increase sampling only for hands whose rank is unstable / too close to neighbors (rank-gap threshold).
+   - This is mandatory. We do NOT do 600k for every hand.
+
+3) Deliverables in code:
+   - scripts/precompute_rankings_quasi_exact.ts (or Rust/C++) producing public/plo5_rankings_quasi_v1.json.gz
+   - server loader reads ONLY that file (no compute)
+   - a small validation script comparing a handful of hands vs high-MC (e.g., 200k) to show error bounds
+
+4) Show proof it works:
+   - command to run precompute (with env vars)
+   - ls -lah public | grep plo5_rankings
+   - /api/rankings returns data
+
+Do NOT keep “thinking” without output. Produce the design doc and then implement iteration 1.
