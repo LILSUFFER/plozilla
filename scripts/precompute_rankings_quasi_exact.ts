@@ -1,26 +1,31 @@
 /**
- * PLO5 Quasi-Exact Rankings — Offline Precompute Script
+ * PLO5 Quasi-Exact Rankings — Offline Precompute Script (v2: Unbiased)
  *
- * ALGORITHM (Board-Centric Enumeration with Histogram Aggregation):
+ * ALGORITHM (Board-Centric Enumeration with MC Villain Sampling):
  *   1. Load Two Plus Two hand-ranks.bin (2,598,960-entry lookup table).
- *   2. Build compact rank mapping: 7,462 distinct rank values → indices 0..7461.
- *   3. Enumerate all 134,459 canonical (suit-isomorphic) PLO5 hands.
- *   4. For EVERY board (all C(52,5) = 2,598,960, or sampled subset):
+ *   2. Enumerate all 134,459 canonical (suit-isomorphic) PLO5 hands.
+ *   3. For EVERY board (all C(52,5) = 2,598,960, or sampled subset):
  *      a. Compute best2[c0*52+c1] for each 2-card combo from remaining 47 cards.
  *         best2 = max over 10 board-3-card-subsets of eval5(2cards + 3boardCards).
- *      b. Enumerate all C(47,5) = 1,533,939 five-card hands from remaining deck.
- *         hand_value = max over C(5,2)=10 two-card subsets of best2. (Incremental max.)
- *      c. Build compact histogram of hand values (7,462 bins).
- *      d. Build cumulative sum for O(1) equity lookup.
- *      e. For each canonical hero not overlapping with board:
- *         hero_value = max of 10 best2 lookups; equity from cumulative histogram.
- *   5. Final equity = average over all boards. Sort → rank, percentile.
+ *      b. For each canonical hero (not overlapping board):
+ *         - hero_value = max of 10 best2 lookups.
+ *         - Build 42-card villain deck (47 non-board cards minus hero's 5 cards).
+ *         - Sample K villain hands from the 42-card pool (Fisher-Yates).
+ *         - Evaluate each villain (max of 10 best2 lookups), compare vs hero.
+ *         - Accumulate win (1.0) / tie (0.5) / loss (0.0).
+ *   4. Final equity = total_wins / total_samples. Sort → rank, percentile.
  *
- * VILLAIN HANDLING (CRN — Common Random Numbers):
- *   All 1,533,939 possible hands on each board are evaluated (full 47-card pool).
- *   Every hero is compared against the SAME histogram per board = CRN.
- *   Approximation: hero's 5 cards included in the pool (~0.3% bias, systematic, not random).
- *   Far more accurate than MC with any feasible trial count.
+ * VILLAIN HANDLING (Unbiased — No hero overlap):
+ *   For each hero, villain is sampled from the CORRECT 42-card pool:
+ *     52 total - 5 board cards - 5 hero cards = 42 remaining cards.
+ *   This eliminates the systematic bias (~0.3-1.0%) from the old approach
+ *   which used the full 47-card pool including hero's cards.
+ *
+ * ACCURACY:
+ *   With full board enumeration (BOARD_SAMPLE_RATE=1.0) and VILLAIN_SAMPLES=1:
+ *     Each hero gets ~1.53M independent villain samples (one per valid board).
+ *     Standard deviation: ~0.04% — well within 0.15% target.
+ *   With board sampling: VILLAIN_SAMPLES scales inversely to maintain accuracy.
  *
  * ADAPTIVE REFINEMENT:
  *   When BOARD_SAMPLE_RATE < 1.0:
@@ -30,20 +35,14 @@
  *   When BOARD_SAMPLE_RATE = 1.0: single pass, no noise to refine.
  *
  * COMPLEXITY:
- *   Per board: ~15.4M array lookups (hand enum) + ~134K hero lookups.
- *   Total (all boards): ~40 trillion lookups.
- *   Estimated: ~30h single-threaded, ~8h with 4 workers.
- *   With BOARD_SAMPLE_RATE=0.01: ~18 minutes single-threaded.
- *
- * EQUITY FORMULA (with tie handling):
- *   eq = (cumLess[heroIdx] + 0.5 * (histogram[heroIdx] - 1)) / (totalHands - 1)
- *   where cumLess = hands strictly worse than hero, histogram[heroIdx]-1 = tied villains
- *   (excluding hero itself from both count and total since villain pool includes hero overlap).
+ *   Per board: ~134K heroes × (47 deck-filter + 5×K shuffle + 10×K eval) ops.
+ *   With K=1: ~10M ops/board vs ~17M for old histogram approach = ~1.7x faster.
+ *   Estimated: ~15h single-threaded, ~4h with 4 workers (full enumeration, K=1).
  *
  * USAGE:
  *   npx tsx scripts/precompute_rankings_quasi_exact.ts
- *   BOARD_SAMPLE_RATE=0.01 npx tsx scripts/precompute_rankings_quasi_exact.ts   # quick test (~18 min)
- *   NUM_WORKERS=4 npx tsx scripts/precompute_rankings_quasi_exact.ts             # parallel
+ *   BOARD_SAMPLE_RATE=0.01 npx tsx scripts/precompute_rankings_quasi_exact.ts
+ *   NUM_WORKERS=4 VILLAIN_SAMPLES=1 npx tsx scripts/precompute_rankings_quasi_exact.ts
  */
 
 import { Worker, isMainThread, parentPort, workerData } from 'worker_threads';
@@ -51,10 +50,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as zlib from 'zlib';
 import * as os from 'os';
+import { fileURLToPath } from 'url';
+
+const __script_filename = typeof __filename !== 'undefined' ? __filename : fileURLToPath(import.meta.url);
 
 const OUT_PATH = process.env.OUT_PATH || 'public/plo5_rankings_quasi_v1.json.gz';
 const NUM_WORKERS = Math.max(1, parseInt(process.env.NUM_WORKERS || String(Math.min(4, os.cpus().length)), 10));
 const BOARD_SAMPLE_RATE = Math.max(0.001, Math.min(1.0, parseFloat(process.env.BOARD_SAMPLE_RATE || '1.0')));
+const VILLAIN_SAMPLES = Math.max(1, parseInt(process.env.VILLAIN_SAMPLES || String(Math.max(1, Math.ceil(0.1 / BOARD_SAMPLE_RATE))), 10));
 const REFINE_THRESHOLD = parseFloat(process.env.REFINE_THRESHOLD || '0.15');
 const EXPECTED_CANONICAL = 134459;
 
@@ -93,20 +96,6 @@ function loadHandRanks(): void {
   if (HR.length !== 2598960) throw new Error(`hand-ranks.bin: expected 2598960, got ${HR.length}`);
 }
 
-let valueToIdx: Uint16Array;
-let idxToValue: Int32Array;
-let NUM_DISTINCT = 0;
-
-function buildRankMapping(): void {
-  const seen = new Set<number>();
-  for (let i = 0; i < HR.length; i++) seen.add(HR[i]);
-  const sorted = [...seen].sort((a, b) => a - b);
-  NUM_DISTINCT = sorted.length;
-  idxToValue = new Int32Array(sorted);
-  const maxVal = sorted[sorted.length - 1];
-  valueToIdx = new Uint16Array(maxVal + 1);
-  for (let i = 0; i < sorted.length; i++) valueToIdx[sorted[i]] = i;
-}
 
 const SUIT_PERMS: number[][] = [];
 for (let a = 0; a < 4; a++)
@@ -199,9 +188,12 @@ const B3_I = [0, 0, 0, 0, 0, 0, 1, 1, 1, 2];
 const B3_J = [1, 1, 1, 2, 2, 3, 2, 2, 3, 3];
 const B3_K = [2, 3, 4, 3, 4, 4, 3, 4, 4, 4];
 
+const V2I = [0, 0, 0, 0, 1, 1, 1, 2, 2, 3];
+const V2J = [1, 2, 3, 4, 2, 3, 4, 3, 4, 4];
+
 interface ProcessResult {
   equitySums: Float64Array;
-  boardCounts: Int32Array;
+  sampleCounts: Int32Array;
   boardsProcessed: number;
 }
 
@@ -209,18 +201,18 @@ function processBoards(
   b0Values: number[],
   canon: CanonData,
   sampleStep: number,
-  focusedHeroes: Set<number> | null
+  focusedHeroes: Set<number> | null,
+  villainSamples: number
 ): ProcessResult {
   const N = canon.count;
   const equitySums = new Float64Array(N);
-  const boardCounts = new Int32Array(N);
+  const sampleCounts = new Int32Array(N);
   let boardsProcessed = 0;
   let boardCounter = 0;
 
   const best2 = new Int32Array(52 * 52);
   const deck47 = new Int32Array(47);
-  const histogram = new Int32Array(NUM_DISTINCT);
-  const cumLess = new Float64Array(NUM_DISTINCT);
+  const deck42 = new Int32Array(42);
 
   const heroSubsets = new Int32Array(N * 10);
   const H2I = [0, 0, 0, 0, 1, 1, 1, 2, 2, 3];
@@ -268,55 +260,6 @@ function processBoards(
               }
             }
 
-            histogram.fill(0);
-            let totalHands = 0;
-
-            for (let i = 0; i < dLen - 4; i++) {
-              const ci = deck47[i];
-              const rowI = ci * 52;
-              for (let j = i + 1; j < dLen - 3; j++) {
-                const cj = deck47[j];
-                const rowJ = cj * 52;
-                const b2_ij = best2[rowI + cj];
-                for (let k = j + 1; k < dLen - 2; k++) {
-                  const ck = deck47[k];
-                  const rowK = ck * 52;
-                  const b2_ik = best2[rowI + ck];
-                  const b2_jk = best2[rowJ + ck];
-                  let mx3 = b2_ij;
-                  if (b2_ik > mx3) mx3 = b2_ik;
-                  if (b2_jk > mx3) mx3 = b2_jk;
-                  for (let l = k + 1; l < dLen - 1; l++) {
-                    const cl = deck47[l];
-                    const rowL = cl * 52;
-                    const b2_il = best2[rowI + cl];
-                    const b2_jl = best2[rowJ + cl];
-                    const b2_kl = best2[rowK + cl];
-                    let mx4 = mx3;
-                    if (b2_il > mx4) mx4 = b2_il;
-                    if (b2_jl > mx4) mx4 = b2_jl;
-                    if (b2_kl > mx4) mx4 = b2_kl;
-                    for (let m = l + 1; m < dLen; m++) {
-                      const cm = deck47[m];
-                      let val = mx4;
-                      const a1 = best2[rowI + cm]; if (a1 > val) val = a1;
-                      const a2 = best2[rowJ + cm]; if (a2 > val) val = a2;
-                      const a3 = best2[rowK + cm]; if (a3 > val) val = a3;
-                      const a4 = best2[rowL + cm]; if (a4 > val) val = a4;
-                      histogram[valueToIdx[val]]++;
-                      totalHands++;
-                    }
-                  }
-                }
-              }
-            }
-
-            let cum = 0;
-            for (let v = 0; v < NUM_DISTINCT; v++) {
-              cumLess[v] = cum;
-              cum += histogram[v];
-            }
-
             for (let hi = 0; hi < N; hi++) {
               if (focusedHeroes && !focusedHeroes.has(hi)) continue;
               if ((canon.maskLow[hi] & bmL) !== 0 || (canon.maskHigh[hi] & bmH) !== 0) continue;
@@ -327,12 +270,35 @@ function processBoards(
                 if (v > heroVal) heroVal = v;
               }
 
-              const compIdx = valueToIdx[heroVal];
-              const below = cumLess[compIdx];
-              const ties = histogram[compIdx] - 1;
-              const eq = (below + 0.5 * ties) / (totalHands - 1);
-              equitySums[hi] += eq;
-              boardCounts[hi]++;
+              let vLen = 0;
+              for (let d = 0; d < dLen; d++) {
+                const c = deck47[d];
+                if (c < 32) {
+                  if ((canon.maskLow[hi] & (1 << c)) !== 0) continue;
+                } else {
+                  if ((canon.maskHigh[hi] & (1 << (c - 32))) !== 0) continue;
+                }
+                deck42[vLen++] = c;
+              }
+
+              for (let k = 0; k < villainSamples; k++) {
+                for (let i = 0; i < 5; i++) {
+                  const j = i + Math.floor(Math.random() * (vLen - i));
+                  const tmp = deck42[i]; deck42[i] = deck42[j]; deck42[j] = tmp;
+                }
+
+                let villainVal = 0;
+                for (let si = 0; si < 10; si++) {
+                  const ci = deck42[V2I[si]], cj = deck42[V2J[si]];
+                  const key = ci < cj ? ci * 52 + cj : cj * 52 + ci;
+                  const v = best2[key];
+                  if (v > villainVal) villainVal = v;
+                }
+
+                if (heroVal > villainVal) equitySums[hi] += 1.0;
+                else if (heroVal === villainVal) equitySums[hi] += 0.5;
+                sampleCounts[hi]++;
+              }
             }
 
             boardsProcessed++;
@@ -341,7 +307,7 @@ function processBoards(
       }
     }
   }
-  return { equitySums, boardCounts, boardsProcessed };
+  return { equitySums, sampleCounts, boardsProcessed };
 }
 
 // ============ WORKER ============
@@ -352,6 +318,7 @@ interface WorkerInput {
   canonMaskHigh: number[];
   canonCount: number;
   sampleStep: number;
+  villainSamples: number;
   focusedHeroes: number[] | null;
 }
 
@@ -359,7 +326,6 @@ if (!isMainThread) {
   const wd = workerData as WorkerInput;
   initBinomial();
   loadHandRanks();
-  buildRankMapping();
 
   const canon: CanonData = {
     keys: [],
@@ -371,15 +337,12 @@ if (!isMainThread) {
   };
 
   const focused = wd.focusedHeroes ? new Set(wd.focusedHeroes) : null;
-
-  let lastProgress = Date.now();
-  const origProcess = processBoards;
-  const result = origProcess(wd.b0Values, canon, wd.sampleStep, focused);
+  const result = processBoards(wd.b0Values, canon, wd.sampleStep, focused, wd.villainSamples);
 
   parentPort!.postMessage({
     type: 'result',
     equitySums: Array.from(result.equitySums),
-    boardCounts: Array.from(result.boardCounts),
+    sampleCounts: Array.from(result.sampleCounts),
     boardsProcessed: result.boardsProcessed,
   });
 }
@@ -390,7 +353,8 @@ async function runWithWorkers(
   canon: CanonData,
   sampleStep: number,
   numWorkers: number,
-  focusedHeroes: number[] | null
+  focusedHeroes: number[] | null,
+  villainSamples: number
 ): Promise<ProcessResult> {
   const chunks: number[][] = Array.from({ length: numWorkers }, () => []);
   for (let i = 0; i < b0Values.length; i++) chunks[i % numWorkers].push(b0Values[i]);
@@ -400,12 +364,12 @@ async function runWithWorkers(
   const canonMaskHigh = Array.from(canon.maskHigh);
 
   const equitySums = new Float64Array(canon.count);
-  const boardCounts = new Int32Array(canon.count);
+  const sampleCounts = new Int32Array(canon.count);
   let totalBoards = 0;
 
   const promises = chunks.filter(c => c.length > 0).map((chunk) => {
     return new Promise<void>((resolve, reject) => {
-      const w = new Worker(__filename, {
+      const w = new Worker(__script_filename, {
         workerData: {
           b0Values: chunk,
           canonCards,
@@ -413,16 +377,17 @@ async function runWithWorkers(
           canonMaskHigh,
           canonCount: canon.count,
           sampleStep,
+          villainSamples,
           focusedHeroes,
         } as WorkerInput,
       });
       w.on('message', (msg: any) => {
         if (msg.type === 'result') {
           const es = msg.equitySums as number[];
-          const bc = msg.boardCounts as number[];
+          const sc = msg.sampleCounts as number[];
           for (let i = 0; i < canon.count; i++) {
             equitySums[i] += es[i];
-            boardCounts[i] += bc[i];
+            sampleCounts[i] += sc[i];
           }
           totalBoards += msg.boardsProcessed;
         }
@@ -436,29 +401,30 @@ async function runWithWorkers(
   });
 
   await Promise.all(promises);
-  return { equitySums, boardCounts, boardsProcessed: totalBoards };
+  return { equitySums, sampleCounts, boardsProcessed: totalBoards };
 }
 
 function runSingleThreaded(
   b0Values: number[],
   canon: CanonData,
   sampleStep: number,
-  focusedHeroes: Set<number> | null
+  focusedHeroes: Set<number> | null,
+  villainSamples: number
 ): ProcessResult {
   const startTime = Date.now();
   let lastLog = startTime;
   const totalB0 = b0Values.length;
 
   const equitySums = new Float64Array(canon.count);
-  const boardCounts = new Int32Array(canon.count);
+  const sampleCounts = new Int32Array(canon.count);
   let totalBoards = 0;
 
   for (let bi = 0; bi < totalB0; bi++) {
     const chunk = [b0Values[bi]];
-    const r = processBoards(chunk, canon, sampleStep, focusedHeroes);
+    const r = processBoards(chunk, canon, sampleStep, focusedHeroes, villainSamples);
     for (let i = 0; i < canon.count; i++) {
       equitySums[i] += r.equitySums[i];
-      boardCounts[i] += r.boardCounts[i];
+      sampleCounts[i] += r.sampleCounts[i];
     }
     totalBoards += r.boardsProcessed;
 
@@ -473,13 +439,14 @@ function runSingleThreaded(
       lastLog = now;
     }
   }
-  return { equitySums, boardCounts, boardsProcessed: totalBoards };
+  return { equitySums, sampleCounts, boardsProcessed: totalBoards };
 }
 
 async function main() {
-  console.log('=== PLO5 Quasi-Exact Rankings ===');
+  console.log('=== PLO5 Quasi-Exact Rankings (v2: Unbiased MC Villain) ===');
   console.log(`OUT_PATH=${OUT_PATH}`);
   console.log(`BOARD_SAMPLE_RATE=${BOARD_SAMPLE_RATE}`);
+  console.log(`VILLAIN_SAMPLES=${VILLAIN_SAMPLES}`);
   console.log(`NUM_WORKERS=${NUM_WORKERS}`);
   console.log(`REFINE_THRESHOLD=${REFINE_THRESHOLD}%`);
   const t0 = Date.now();
@@ -487,8 +454,6 @@ async function main() {
   console.log('Loading hand-ranks.bin...');
   initBinomial();
   loadHandRanks();
-  buildRankMapping();
-  console.log(`Rank mapping: ${NUM_DISTINCT} distinct values, max=${idxToValue[NUM_DISTINCT - 1]}`);
 
   console.log('Enumerating canonical hands...');
   const enumStart = Date.now();
@@ -499,27 +464,27 @@ async function main() {
   const b0All = Array.from({ length: 48 }, (_, i) => i);
   const sampleStep = BOARD_SAMPLE_RATE < 1.0 ? Math.round(1 / BOARD_SAMPLE_RATE) : 1;
 
-  console.log(`\n--- Pass 1: ${sampleStep > 1 ? `sampling 1/${sampleStep} boards` : 'all boards'} ---`);
+  console.log(`\n--- Pass 1: ${sampleStep > 1 ? `sampling 1/${sampleStep} boards` : 'all boards'}, ${VILLAIN_SAMPLES} villain sample(s)/board ---`);
   const pass1Start = Date.now();
 
   let result: ProcessResult;
   if (NUM_WORKERS > 1) {
     try {
-      result = await runWithWorkers(b0All, canon, sampleStep, NUM_WORKERS, null);
+      result = await runWithWorkers(b0All, canon, sampleStep, NUM_WORKERS, null, VILLAIN_SAMPLES);
       console.log(`Pass 1 done (${NUM_WORKERS} workers): ${result.boardsProcessed.toLocaleString()} boards in ${((Date.now() - pass1Start) / 1000).toFixed(1)}s`);
     } catch (err) {
       console.warn(`Worker threads failed (${err instanceof Error ? err.message : err}), falling back to single-threaded.`);
-      result = runSingleThreaded(b0All, canon, sampleStep, null);
+      result = runSingleThreaded(b0All, canon, sampleStep, null, VILLAIN_SAMPLES);
       console.log(`Pass 1 done (single-threaded): ${result.boardsProcessed.toLocaleString()} boards in ${((Date.now() - pass1Start) / 1000).toFixed(1)}s`);
     }
   } else {
-    result = runSingleThreaded(b0All, canon, sampleStep, null);
+    result = runSingleThreaded(b0All, canon, sampleStep, null, VILLAIN_SAMPLES);
     console.log(`Pass 1 done: ${result.boardsProcessed.toLocaleString()} boards in ${((Date.now() - pass1Start) / 1000).toFixed(1)}s`);
   }
 
   const equities = new Float64Array(canon.count);
   for (let i = 0; i < canon.count; i++) {
-    equities[i] = result.boardCounts[i] > 0 ? (result.equitySums[i] / result.boardCounts[i]) * 100 : 0;
+    equities[i] = result.sampleCounts[i] > 0 ? (result.equitySums[i] / result.sampleCounts[i]) * 100 : 0;
   }
 
   // --- Adaptive refinement ---
@@ -541,24 +506,25 @@ async function main() {
       console.log(`\nAdaptive: ${unstable.size.toLocaleString()} unstable hands (>${(maxUnstable / canon.count * 100).toFixed(0)}% of total) — sample rate too low for meaningful refinement, skipping Pass 2.`);
     } else if (unstable.size > 0) {
       const refineSampleStep = Math.max(1, Math.round(sampleStep / 10));
-      console.log(`\n--- Pass 2 (adaptive): ${unstable.size.toLocaleString()} unstable hands, sampling 1/${refineSampleStep} boards ---`);
+      const refineVillainSamples = Math.max(1, Math.ceil(0.1 / (1.0 / refineSampleStep)));
+      console.log(`\n--- Pass 2 (adaptive): ${unstable.size.toLocaleString()} unstable hands, sampling 1/${refineSampleStep} boards, ${refineVillainSamples} villain sample(s) ---`);
       const pass2Start = Date.now();
 
       let pass2: ProcessResult;
       const focusedArr = [...unstable];
       if (NUM_WORKERS > 1) {
         try {
-          pass2 = await runWithWorkers(b0All, canon, refineSampleStep, NUM_WORKERS, focusedArr);
+          pass2 = await runWithWorkers(b0All, canon, refineSampleStep, NUM_WORKERS, focusedArr, refineVillainSamples);
         } catch {
-          pass2 = runSingleThreaded(b0All, canon, refineSampleStep, unstable);
+          pass2 = runSingleThreaded(b0All, canon, refineSampleStep, unstable, refineVillainSamples);
         }
       } else {
-        pass2 = runSingleThreaded(b0All, canon, refineSampleStep, unstable);
+        pass2 = runSingleThreaded(b0All, canon, refineSampleStep, unstable, refineVillainSamples);
       }
 
       for (const hi of unstable) {
-        if (pass2.boardCounts[hi] > 0) {
-          equities[hi] = (pass2.equitySums[hi] / pass2.boardCounts[hi]) * 100;
+        if (pass2.sampleCounts[hi] > 0) {
+          equities[hi] = (pass2.equitySums[hi] / pass2.sampleCounts[hi]) * 100;
         }
       }
       console.log(`Pass 2 done: ${pass2.boardsProcessed.toLocaleString()} boards in ${((Date.now() - pass2Start) / 1000).toFixed(1)}s`);
@@ -583,12 +549,12 @@ async function main() {
   fs.mkdirSync(path.dirname(OUT_PATH), { recursive: true });
 
   const outObj = {
-    version: 1,
-    method: 'quasi-exact-board-enum-histogram',
+    version: 2,
+    method: 'quasi-exact-board-enum-mc-villain',
     boardSampleRate: BOARD_SAMPLE_RATE,
-    boardsPerHand: result.boardCounts[0],
+    villainSamplesPerBoard: VILLAIN_SAMPLES,
+    samplesPerHand: result.sampleCounts[0],
     canonicalHands: canon.count,
-    distinctRanks: NUM_DISTINCT,
     generatedAt: new Date().toISOString(),
     hands: order.map((i) => ({
       hand_key: canon.keys[i],

@@ -7,18 +7,21 @@ A browser-based 5-Card Omaha equity calculator similar to ProPokerTools Oracle. 
 ## Recent Changes (Feb 2026)
 - **Canonical Hand Rankings — Offline/Online Separation** (Feb 2026): ProPokerTools-style ranking with suit canonicalization
   - Strict offline/online architecture: ZERO equity calculations at runtime
-  - **Quasi-exact precompute (v1)**: `scripts/precompute_rankings_quasi_exact.ts` (run via `npx tsx scripts/precompute_rankings_quasi_exact.ts`)
+  - **Quasi-exact precompute (v2, unbiased MC villain)**: `scripts/precompute_rankings_quasi_exact.ts` (run via `npx tsx scripts/precompute_rankings_quasi_exact.ts`)
     - Board-centric enumeration: iterates ALL C(52,5) = 2,598,960 boards (or sampled subset)
-    - Per board: evaluates ALL C(47,5) = 1,533,939 possible 5-card hands from remaining deck
-    - Builds compact histogram (7,462 bins), O(1) equity lookup per hero via cumulative sum
-    - CRN (Common Random Numbers): every hero compared against same villain histogram per board
-    - Villain approximation: full 47-card pool (includes hero overlap, <0.5% systematic bias)
+    - Per board per hero: samples K villain hands from correct 42-card pool (52 - 5 board - 5 hero)
+    - **Unbiased**: villain never overlaps hero cards, eliminates ~0.3-1.0% systematic bias from v1
+    - Fisher-Yates shuffle for villain sampling, configurable K via VILLAIN_SAMPLES env var
+    - VILLAIN_SAMPLES defaults to max(1, ceil(0.1 / BOARD_SAMPLE_RATE)) for accuracy at any sample rate
+    - With K=1 and full board enumeration: ~2.6M samples per hero, ~0.04% standard deviation
     - Adaptive refinement: Pass 2 for unstable hands when using board sampling
-    - Worker thread parallelism (NUM_WORKERS env var)
+    - Worker thread parallelism (NUM_WORKERS env var), ESM-compatible with fileURLToPath fallback
     - Board sampling: BOARD_SAMPLE_RATE env var (0.001=quick test, 1.0=full)
-    - Outputs `public/plo5_rankings_quasi_v1.json.gz`
+    - Outputs `public/plo5_rankings_quasi_v1.json.gz` (version 2, method: quasi-exact-board-enum-mc-villain)
     - Each record: hand_key, card0-4, combo_count, equity, rank, percentile
-    - Performance: ~15ms/board, ~30h single-threaded full, ~8h with 4 workers
+  - **Validation CLI**: `scripts/check_equity_vs_random.ts` — compares unbiased MC (mode A) vs biased histogram (mode B)
+    - Usage: `npx tsx scripts/check_equity_vs_random.ts "Js Th 5d Tc 4c" --trials 100000`
+    - Confirms JsTh5dTc4c: unbiased MC = 53.87% (matches PPT 53.89%), biased histogram = 53.16% (0.71% off)
   - **MC precompute (v4, legacy)**: `scripts/precompute_canonical_rankings_v4.ts` (run via `npm run precompute:rankings`)
     - 10,000 Monte Carlo trials per canonical hand using WASM evaluator
     - Outputs `public/plo5_rankings_v4.json.gz`

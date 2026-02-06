@@ -1,0 +1,41 @@
+We need equity to match ProPokerTools for “Hero PLO5 hand vs 100% random range”.
+Definition must be EXACT:
+- Hero is fixed (5 cards).
+- Board is sampled/enumerated from remaining 47 cards (excluding hero).
+- Villain 5-card hand is sampled from remaining 42 cards (excluding hero and board).
+No overlap with hero is allowed.
+
+PROBLEM:
+Your quasi-exact script builds the villain histogram from the 47-card pool and DOES NOT exclude hero cards
+(you even mention "~0.3% bias"). This causes systematic equity errors, e.g. JsTh5dTc4c:
+PPT = 53.89%, ours = 54.7%.
+
+TASKS:
+
+1) Add a validation CLI:
+   scripts/check_equity_vs_random.ts
+   Input: 5-card hero hand string (e.g. "Js Th 5d Tc 4c")
+   Output: equity vs random with TWO modes:
+   (A) unbiased Monte Carlo: sample board from remaining 47, villain from remaining 42 (no overlaps)
+   (B) current quasi-exact method
+   Print both values and their delta.
+
+2) Fix the quasi-exact pipeline so the stored equity corresponds to the unbiased definition:
+   IMPORTANT: a single per-board villain histogram from 47 cards is NOT enough because villain distribution depends on excluding the specific hero cards.
+
+   So choose ONE correct approach and implement it:
+
+   Option 1 (recommended, correct & feasible):
+   Keep board enumeration exact (or sampled), but for each hero compute villain equity via Monte Carlo that samples villain from the remaining 42 cards (excluding hero+board), using CRN seeds per board for variance reduction.
+   This removes bias and can be adaptive (more samples only where needed).
+
+   Option 2 (harder):
+   Build additional data structures per board that allow excluding an arbitrary 5-card set from villain hand enumeration exactly.
+   (If you can’t do this efficiently, don’t pretend it’s exact.)
+
+3) Add acceptance check:
+   For these test hands, our equity must match PPT within <=0.15% after enough samples:
+   - JsTh5dTc4c should be ~53.89% vs random
+   (add 3-5 more test hands I will provide if needed)
+
+4) After fix, regenerate rankings file and confirm all 134,459 hands load.
