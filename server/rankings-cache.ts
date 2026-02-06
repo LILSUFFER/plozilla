@@ -4,7 +4,9 @@ import * as zlib from 'zlib';
 
 const TOTAL_HANDS_ALL = 2598960;
 const RANKS_DECODE = '23456789TJQKA';
-const DATA_FILE = path.join(process.cwd(), 'public', 'plo5_rankings_v4.json.gz');
+const DATA_FILE_QUASI = path.join(process.cwd(), 'public', 'plo5_rankings_quasi_v1.json.gz');
+const DATA_FILE_V4 = path.join(process.cwd(), 'public', 'plo5_rankings_v4.json.gz');
+const DATA_FILE = fs.existsSync(DATA_FILE_QUASI) ? DATA_FILE_QUASI : DATA_FILE_V4;
 
 const SUIT_PERMS: number[][] = [];
 for (let a = 0; a < 4; a++)
@@ -111,7 +113,7 @@ export function loadRankingsFromFile(): boolean {
   if (cachedData) return true;
 
   if (!fs.existsSync(DATA_FILE)) {
-    loadError = 'Rankings database not found. Run: npm run precompute:rankings';
+    loadError = 'Rankings database not found. Run: npm run precompute:quasi (or npm run precompute:rankings)';
     console.log(`Rankings file not found: ${DATA_FILE}`);
     console.log(loadError);
     return false;
