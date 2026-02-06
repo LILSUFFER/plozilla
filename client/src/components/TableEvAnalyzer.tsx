@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
-import { RotateCcw, Settings } from 'lucide-react';
+import { RotateCcw, Settings, Info } from 'lucide-react';
 
 type PlayerType = 'Hero' | 'Reg' | 'Fish' | 'Empty';
 
@@ -112,6 +112,7 @@ export function TableEvAnalyzer() {
   const [heroRake, setHeroRake] = useState(16);
   const [rakeback, setRakeback] = useState(0);
   const [dialogConfig, setDialogConfig] = useState<SeatConfig | null>(null);
+  const [showInfo, setShowInfo] = useState(false);
 
   const calculation = useMemo(() => {
     const heroSeat = seats.find(s => s.type === 'Hero');
@@ -397,8 +398,117 @@ export function TableEvAnalyzer() {
               );
             })}
           </div>
+          <div className="text-center mt-4">
+            <button
+              onClick={() => setShowInfo(true)}
+              className="text-xs text-muted-foreground hover:text-primary transition-colors inline-flex items-center gap-1"
+              data-testid="link-how-it-works"
+            >
+              <Info className="w-3 h-3" />
+              How does it work?
+            </button>
+          </div>
         </CardContent>
       </Card>
+
+      <Dialog open={showInfo} onOpenChange={setShowInfo}>
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>How Table EV Calculator Works</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-6 py-4 text-sm">
+            <div className="space-y-2">
+              <h3 className="font-bold text-base text-primary">Core Formula</h3>
+              <div className="bg-muted/50 p-4 rounded-lg font-mono text-xs leading-relaxed">
+                EV = Sum of Fish EV contributions - Effective Hero Rake
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="font-bold text-base text-primary">Step 1: Real Loserate</h3>
+              <p className="text-muted-foreground">Each fish has a total loserate and a rake component. The real loserate is the net amount other players win from this fish:</p>
+              <div className="bg-muted/50 p-3 rounded-lg font-mono text-xs">
+                Real Loserate = Fish Loserate - Fish Rake
+              </div>
+              <p className="text-muted-foreground text-xs">Fish Rake goes to the poker room, not to other players.</p>
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="font-bold text-base text-primary">Step 2: Share per Reg</h3>
+              <p className="text-muted-foreground">The real loserate is split equally among all regs (including Hero) at the table:</p>
+              <div className="bg-muted/50 p-3 rounded-lg font-mono text-xs">
+                Share = Real Loserate / N_regs
+              </div>
+              <p className="text-muted-foreground text-xs">N_regs = number of Reg + Hero players.</p>
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="font-bold text-base text-primary">Step 3: Position Coefficient</h3>
+              <p className="text-muted-foreground">Your position relative to the fish matters. Sitting closer (to the left) gives you a higher coefficient because you act after the fish more often:</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-muted/50 p-3 rounded-lg">
+                  <p className="text-xs font-semibold mb-2 text-orange-500">Normal Fish</p>
+                  <div className="space-y-1 font-mono text-xs">
+                    <div className="flex justify-between"><span>fish+1 (direct left):</span><span className="font-bold">1.50x</span></div>
+                    <div className="flex justify-between"><span>fish+2:</span><span className="font-bold">1.10x</span></div>
+                    <div className="flex justify-between"><span>fish+3:</span><span className="font-bold">0.90x</span></div>
+                    <div className="flex justify-between"><span>fish+4:</span><span className="font-bold">0.80x</span></div>
+                    <div className="flex justify-between"><span>fish+5:</span><span className="font-bold">0.70x</span></div>
+                  </div>
+                </div>
+                <div className="bg-muted/50 p-3 rounded-lg">
+                  <p className="text-xs font-semibold mb-2 text-red-500">3bet 30%+ Fish</p>
+                  <div className="space-y-1 font-mono text-xs">
+                    <div className="flex justify-between"><span>fish+1 (direct left):</span><span className="font-bold">1.35x</span></div>
+                    <div className="flex justify-between"><span>fish+2:</span><span className="font-bold">1.00x</span></div>
+                    <div className="flex justify-between"><span>fish+3:</span><span className="font-bold">0.75x</span></div>
+                    <div className="flex justify-between"><span>fish+4:</span><span className="font-bold">0.60x</span></div>
+                    <div className="flex justify-between"><span>fish+5:</span><span className="font-bold">0.40x</span></div>
+                  </div>
+                </div>
+              </div>
+              <p className="text-muted-foreground text-xs">3bet fish reduces positional advantage because aggressive 3-betting narrows the skill edge from position.</p>
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="font-bold text-base text-primary">Step 4: EV per Fish</h3>
+              <p className="text-muted-foreground">For each fish at the table, your EV contribution is:</p>
+              <div className="bg-muted/50 p-3 rounded-lg font-mono text-xs">
+                Fish EV = (Real Loserate / N_regs) * Position Coef
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="font-bold text-base text-primary">Step 5: Hero Rake & Rakeback</h3>
+              <p className="text-muted-foreground">Your own rake is subtracted once from the total. Rakeback reduces the effective rake:</p>
+              <div className="bg-muted/50 p-3 rounded-lg font-mono text-xs space-y-1">
+                <div>Effective Rake = Hero Rake * (1 - Rakeback% / 100)</div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="font-bold text-base text-primary">Final Result</h3>
+              <div className="bg-primary/10 border border-primary/20 p-4 rounded-lg font-mono text-xs">
+                <span className="text-primary font-bold">Total EV = Sum(Fish EV) - Effective Hero Rake</span>
+              </div>
+              <p className="text-muted-foreground text-xs">Result is in bb/100 (big blinds per 100 hands).</p>
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="font-bold text-base text-primary">Example</h3>
+              <div className="bg-muted/50 p-3 rounded-lg text-xs space-y-1">
+                <p>1 Fish (VPIP 90%, Loserate 200, Rake 41), 4 Regs + Hero, Hero at fish+1</p>
+                <p className="font-mono mt-2">Real Loserate = 200 - 41 = 159</p>
+                <p className="font-mono">Share = 159 / 5 = 31.8</p>
+                <p className="font-mono">Position Coef (fish+1) = 1.5x</p>
+                <p className="font-mono">Fish EV = 31.8 * 1.5 = 47.7</p>
+                <p className="font-mono">Hero Rake = 16, Rakeback = 0%</p>
+                <p className="font-mono font-bold text-primary mt-2">Total EV = 47.7 - 16 = +31.70 bb/100</p>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={selectedSeatIndex !== null} onOpenChange={(open) => !open && setSelectedSeatIndex(null)}>
         <DialogContent className="sm:max-w-md">
