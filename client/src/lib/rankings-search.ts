@@ -211,12 +211,15 @@ function parseRankCounts(pattern: string): Record<string, number> {
   const upperPattern = pattern.toUpperCase();
   
   // Check if it's a specific 5-card hand (e.g. JsTh5dTc4c)
+  // Matching any order of 5 card-suit pairs
   const fullHandMatch = upperPattern.match(/^([AKQJT2-9][SHDC]){5}$/);
   if (fullHandMatch) {
     for (let j = 0; j < 5; j++) {
       const rank = upperPattern[j * 2];
       counts[rank] = (counts[rank] || 0) + 1;
     }
+    // Flag this as an exact match search
+    (counts as any)._isExact = true;
     return counts;
   }
 
@@ -416,17 +419,17 @@ function matchesBranch(
     }
   }
 
-  const includeEntries = Object.entries(branch.include);
-  const totalInclude = includeEntries.reduce((sum, [_, count]) => sum + count, 0);
+  const includeEntries = Object.entries(branch.include).filter(([k]) => k !== '_isExact');
+  const isExactSearch = (branch.include as any)._isExact;
 
-  // If we have exactly 5 ranks specified, it's an exact match search
-  if (totalInclude === 5) {
-    // For exact 5-card search, we must match the distribution of ranks exactly.
-    // E.g. JsTh5dTc4c has J:1, T:2, 5:1, 4:1. totalRanks is always 5 for canonical hands.
+  // If we have an exact match search flag
+  if (isExactSearch) {
+    // Exact 5-card search: must match the distribution of ranks exactly.
+    // Ensure all ranks from search exist in hand with same count
     for (const [rank, count] of includeEntries) {
       if ((rankCounts[rank] || 0) !== count) return false;
     }
-    // Also ensure no extra ranks exist that aren't in the include list
+    // Ensure no extra ranks exist that aren't in the search
     for (const rank of Object.keys(rankCounts)) {
       if (!(rank in branch.include)) return false;
     }
