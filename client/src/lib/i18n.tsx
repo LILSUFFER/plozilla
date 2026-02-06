@@ -213,6 +213,7 @@ const translations = {
     rankingsTopPercent: 'Top {n}%',
     rankingsPercentRange: '{a}% — {b}%',
     rankingsNoResults: 'No hands found',
+    rankingsNotReady: 'Rankings are being prepared. Please check back shortly.',
   },
   ru: {
     subtitle: 'Калькулятор эквити 5-Card Omaha',
@@ -424,6 +425,7 @@ const translations = {
     rankingsTopPercent: 'Топ {n}%',
     rankingsPercentRange: '{a}% — {b}%',
     rankingsNoResults: 'Руки не найдены',
+    rankingsNotReady: 'Рейтинг рук готовится. Пожалуйста, проверьте позже.',
   },
 } as const;
 
