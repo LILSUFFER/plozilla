@@ -22,8 +22,11 @@ export async function registerRoutes(
     if (ok) {
       console.log('Rankings data ready to serve');
     } else {
-      console.log('Rankings not in DB - starting in-process seed...');
-      seedRankingsInProcess();
+      console.log('Rankings not in DB - will start seed after server is ready...');
+      setTimeout(() => {
+        console.log('Starting in-process seed...');
+        seedRankingsInProcess();
+      }, 5000);
     }
   });
 

@@ -188,7 +188,7 @@ export async function seedRankingsInProcess(): Promise<void> {
 
     let handIdx = 0;
     let lastLog = Date.now();
-    const YIELD_INTERVAL = 2000;
+    const CHUNK_SIZE = 500;
 
     for (let c0 = 0; c0 < 48; c0++) {
       for (let c1 = c0 + 1; c1 < 49; c1++) {
@@ -224,13 +224,13 @@ export async function seedRankingsInProcess(): Promise<void> {
               equities[handIdx] = (w + t / 2) / TRIALS_PER_HAND * 100;
 
               handIdx++;
+
+              if (handIdx % CHUNK_SIZE === 0) {
+                seedProgress = handIdx / TOTAL_HANDS;
+                await yieldToEventLoop();
+              }
             }
           }
-        }
-
-        if (handIdx % YIELD_INTERVAL < 50) {
-          seedProgress = handIdx / TOTAL_HANDS;
-          await yieldToEventLoop();
         }
 
         const now = Date.now();
@@ -254,7 +254,7 @@ export async function seedRankingsInProcess(): Promise<void> {
     seedProgress = 0.97;
     console.log('Storing in database...');
 
-    await pool.query('DELETE FROM hand_rankings_data');
+    await pool.query('DELETE FROM hand_rankings_data WHERE version = $1', [RANKINGS_VERSION]);
 
     const cardsBuf = Buffer.from(cards.buffer, cards.byteOffset, cards.byteLength);
     const equitiesBuf = Buffer.from(equities.buffer, equities.byteOffset, equities.byteLength);

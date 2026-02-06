@@ -5,16 +5,17 @@
 A browser-based 5-Card Omaha equity calculator similar to ProPokerTools Oracle. The calculator supports board input in valid poker states (Preflop: 0, Flop: 3, Turn: 4, River: 5 cards), multiple player hands (5 cards each), concatenated card notation (e.g., "7s6hJdQc8c"), and performs exhaustive equity calculations with accurate Omaha hand evaluation (exactly 2 hole cards + 3 board cards). Built as a client-side React TypeScript application.
 
 ## Recent Changes (Feb 2026)
-- **Individual Hand Rankings** (Feb 2026): All 2,598,960 hands ranked individually by equity vs random
-  - Every C(52,5) hand computed individually (not grouped), 50 MC trials each
-  - WASM `calculateVsRandom(numTrials)` keeps entire MC loop in WASM (no JS-WASM boundary overhead)
-  - Web Worker generates all hands in nested loops, computes equity, sorts by equity descending
-  - Data stored as typed arrays: Uint8Array(cards), Float32Array(equities), Uint32Array(sortOrder)
-  - Cached in IndexedDB (~33MB total), instant on subsequent visits
-  - First-time computation: ~5 minutes with progress bar, then cached (RANKINGS_VERSION=3)
-  - Virtual scroll display with 100K item cap (search unlocks all 2.6M)
+- **Server-Side Hand Rankings** (Feb 2026): All 2,598,960 hands pre-computed and stored in PostgreSQL
+  - Every C(52,5) hand computed individually, 25 MC trials each via server-side WASM
+  - One-time seed runs automatically on first server startup (~8.5 min), then stored permanently in DB
+  - `server/rankings-cache.ts`: loads WASM in Node.js, computes all hands as async background task, yields to event loop every 500 hands so server stays responsive during seed
+  - Data stored as BYTEA blobs in `hand_rankings_data` table: cards (~13MB), equities (~10MB), sort_order (~10MB)
+  - On server restart, data loads from DB into memory in <1 second (no re-computation)
+  - API: `/api/rankings` (paginated with search), `/api/rankings/status` (ready/seeding progress)
+  - Frontend shows progress bar during initial seed, auto-polls every 3s, auto-transitions when ready
+  - Virtual scroll display with on-demand page fetching (200 items per page)
   - Each hand shows specific cards with suits, equity %, and percentile rank
-  - Search: ProPokerTools syntax + percentile filtering works on individual hands
+  - Search: ProPokerTools syntax + percentile filtering, server-side filtering with result caching (max 200 entries)
 - **Rankings Search with ProPokerTools Syntax**: Full range syntax for search
   - Parser in `client/src/lib/rankings-search.ts`
   - Supports: exclusions (!), ascending/descending ranges (+/-), comma-separated OR, suit filters (ds/ss/$ds/$ss), rank macros ($B, $M, $Z, etc.), $np (no pairs), brackets ([A-K]), percentile filtering

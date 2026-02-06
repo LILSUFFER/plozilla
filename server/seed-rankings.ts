@@ -155,7 +155,7 @@ async function seedRankings() {
 
   console.log('Storing in database...');
 
-  await pool.query('DELETE FROM hand_rankings_data');
+  await pool.query('DELETE FROM hand_rankings_data WHERE version = $1', [RANKINGS_VERSION]);
 
   const cardsBuf = Buffer.from(cards.buffer, cards.byteOffset, cards.byteLength);
   const equitiesBuf = Buffer.from(equities.buffer, equities.byteOffset, equities.byteLength);
