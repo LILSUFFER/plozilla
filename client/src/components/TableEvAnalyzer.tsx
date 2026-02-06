@@ -33,34 +33,82 @@ const FISH_VPIP_PRESETS = [
   { label: '100%', value: '100', rake: 48, loserate: 280 },
 ];
 
-const FISH_INDEX = 3;
-const HERO_INDEX = 4; // Left of Fish (distance 1 = 1.5x coefficient)
-const CLOCKWISE_INDICES = [3, 4, 5, 0, 1, 2];
+type TableSize = 6 | 5 | 4 | 2;
 
-const seatPositions = [
-  { top: '12%', left: '32%' },
-  { top: '12%', left: '68%' },
-  { top: '50%', left: '92%' },
-  { top: '82%', left: '68%' },
-  { top: '82%', left: '32%' },
-  { top: '50%', left: '8%' },
-];
+const TABLE_CONFIGS: Record<TableSize, {
+  label: string;
+  seatPositions: { top: string; left: string }[];
+  clockwiseIndices: number[];
+  defaultFishIndex: number;
+  defaultHeroIndex: number;
+}> = {
+  6: {
+    label: '6-MAX',
+    seatPositions: [
+      { top: '12%', left: '32%' },
+      { top: '12%', left: '68%' },
+      { top: '50%', left: '92%' },
+      { top: '82%', left: '68%' },
+      { top: '82%', left: '32%' },
+      { top: '50%', left: '8%' },
+    ],
+    clockwiseIndices: [3, 4, 5, 0, 1, 2],
+    defaultFishIndex: 3,
+    defaultHeroIndex: 4,
+  },
+  5: {
+    label: '5-MAX',
+    seatPositions: [
+      { top: '12%', left: '50%' },
+      { top: '45%', left: '90%' },
+      { top: '82%', left: '72%' },
+      { top: '82%', left: '28%' },
+      { top: '45%', left: '10%' },
+    ],
+    clockwiseIndices: [2, 3, 4, 0, 1],
+    defaultFishIndex: 2,
+    defaultHeroIndex: 3,
+  },
+  4: {
+    label: '4-MAX',
+    seatPositions: [
+      { top: '12%', left: '50%' },
+      { top: '50%', left: '90%' },
+      { top: '82%', left: '50%' },
+      { top: '50%', left: '10%' },
+    ],
+    clockwiseIndices: [2, 3, 0, 1],
+    defaultFishIndex: 2,
+    defaultHeroIndex: 3,
+  },
+  2: {
+    label: 'HU',
+    seatPositions: [
+      { top: '12%', left: '50%' },
+      { top: '82%', left: '50%' },
+    ],
+    clockwiseIndices: [0, 1],
+    defaultFishIndex: 0,
+    defaultHeroIndex: 1,
+  },
+};
 
-function getActiveDistanceClockwise(fromIndex: number, toIndex: number, seats: SeatConfig[]): number {
-  const fromPos = CLOCKWISE_INDICES.indexOf(fromIndex);
-  const toPos = CLOCKWISE_INDICES.indexOf(toIndex);
+function getActiveDistanceClockwise(fromIndex: number, toIndex: number, seats: SeatConfig[], clockwiseIndices: number[]): number {
+  const fromPos = clockwiseIndices.indexOf(fromIndex);
+  const toPos = clockwiseIndices.indexOf(toIndex);
   if (fromPos === -1 || toPos === -1) return 0;
   
+  const totalSeats = clockwiseIndices.length;
   let activeCount = 0;
   let currPos = fromPos;
   
   while (currPos !== toPos) {
-    currPos = (currPos + 1) % 6;
-    const seatAtPos = seats.find(s => s.seatIndex === CLOCKWISE_INDICES[currPos]);
+    currPos = (currPos + 1) % totalSeats;
+    const seatAtPos = seats.find(s => s.seatIndex === clockwiseIndices[currPos]);
     if (seatAtPos && seatAtPos.type !== 'Empty') {
       activeCount++;
     }
-    if (activeCount > 6) break;
+    if (activeCount > totalSeats) break;
   }
   
   return activeCount;
@@ -87,13 +135,16 @@ function getPositionCoefficient(distance: number, is3bet: boolean): number {
   }
 }
 
-const initialSeats: SeatConfig[] = Array(6).fill(null).map((_, i) => ({
-  seatIndex: i,
-  type: i === FISH_INDEX ? 'Fish' : i === HERO_INDEX ? 'Hero' : 'Reg',
-  fishVpip: i === FISH_INDEX ? '90' : undefined,
-  fishRake: i === FISH_INDEX ? 41 : undefined,
-  fishLoserate: i === FISH_INDEX ? 200 : undefined,
-}));
+function createInitialSeats(size: TableSize): SeatConfig[] {
+  const config = TABLE_CONFIGS[size];
+  return Array(size).fill(null).map((_, i) => ({
+    seatIndex: i,
+    type: i === config.defaultFishIndex ? 'Fish' as PlayerType : i === config.defaultHeroIndex ? 'Hero' as PlayerType : 'Reg' as PlayerType,
+    fishVpip: i === config.defaultFishIndex ? '90' : undefined,
+    fishRake: i === config.defaultFishIndex ? 41 : undefined,
+    fishLoserate: i === config.defaultFishIndex ? 200 : undefined,
+  }));
+}
 
 interface CalculationItem {
   fishIndex: number;
@@ -107,12 +158,20 @@ interface CalculationItem {
 }
 
 export function TableEvAnalyzer() {
-  const [seats, setSeats] = useState<SeatConfig[]>(initialSeats);
+  const [tableSize, setTableSize] = useState<TableSize>(6);
+  const [seats, setSeats] = useState<SeatConfig[]>(createInitialSeats(6));
   const [selectedSeatIndex, setSelectedSeatIndex] = useState<number | null>(null);
   const [heroRake, setHeroRake] = useState(16);
   const [rakeback, setRakeback] = useState(0);
   const [dialogConfig, setDialogConfig] = useState<SeatConfig | null>(null);
   const [showInfo, setShowInfo] = useState(false);
+
+  const tableConfig = TABLE_CONFIGS[tableSize];
+
+  const handleTableSizeChange = (size: TableSize) => {
+    setTableSize(size);
+    setSeats(createInitialSeats(size));
+  };
 
   const calculation = useMemo(() => {
     const heroSeat = seats.find(s => s.type === 'Hero');
@@ -130,7 +189,7 @@ export function TableEvAnalyzer() {
         const loserate = preset?.loserate || seat.fishLoserate || 0;
         const rake = preset?.rake || seat.fishRake || 0;
         
-        const dist = getActiveDistanceClockwise(seat.seatIndex, heroSeat.seatIndex, seats);
+        const dist = getActiveDistanceClockwise(seat.seatIndex, heroSeat.seatIndex, seats, tableConfig.clockwiseIndices);
         const posCoef = getPositionCoefficient(dist, !!seat.fish3bet);
         
         const realLoserate = loserate - rake;
@@ -159,7 +218,7 @@ export function TableEvAnalyzer() {
     const totalEv = fishEvSum - effectiveHeroRake;
 
     return { totalEv, breakdowns, nReg, debug, heroRake, effectiveHeroRake, rakeback };
-  }, [seats, heroRake, rakeback]);
+  }, [seats, heroRake, rakeback, tableConfig]);
 
   const handleSeatClick = (index: number) => {
     setSelectedSeatIndex(index);
@@ -183,7 +242,7 @@ export function TableEvAnalyzer() {
   };
 
   const resetTable = () => {
-    setSeats(initialSeats);
+    setSeats(createInitialSeats(tableSize));
     setHeroRake(16);
     setRakeback(0);
   };
@@ -339,13 +398,26 @@ export function TableEvAnalyzer() {
 
       <Card className="flex-1 flex flex-col">
         <CardHeader className="pb-2">
-          <CardTitle className="text-center text-lg">6-MAX Table</CardTitle>
+          <CardTitle className="text-center text-lg">Table</CardTitle>
         </CardHeader>
-        <CardContent className="flex-1 flex items-center justify-center">
+        <CardContent className="flex-1 flex flex-col items-center justify-center gap-4">
+          <div className="flex items-center gap-2">
+            {([6, 5, 4, 2] as TableSize[]).map((size) => (
+              <Button
+                key={size}
+                variant={tableSize === size ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handleTableSizeChange(size)}
+                data-testid={`button-table-${size}`}
+              >
+                {TABLE_CONFIGS[size].label}
+              </Button>
+            ))}
+          </div>
           <div className="relative w-full max-w-xl aspect-[16/10]">
             <div className="absolute inset-0 rounded-[100px] border-2 border-slate-700/50 bg-slate-800 shadow-2xl" />
             <div className="absolute inset-6 rounded-[80px] border border-slate-600/50 bg-slate-700 flex items-center justify-center">
-              <span className="text-slate-600 font-bold text-3xl tracking-[0.3em] select-none">6-MAX</span>
+              <span className="text-slate-600 font-bold text-3xl tracking-[0.3em] select-none">{tableConfig.label}</span>
             </div>
 
             {seats.map((seat, i) => {
@@ -360,8 +432,8 @@ export function TableEvAnalyzer() {
                   key={i}
                   style={{
                     position: 'absolute',
-                    top: seatPositions[i].top,
-                    left: seatPositions[i].left,
+                    top: tableConfig.seatPositions[i].top,
+                    left: tableConfig.seatPositions[i].left,
                     transform: 'translate(-50%, -50%)',
                   }}
                   onClick={() => handleSeatClick(i)}
