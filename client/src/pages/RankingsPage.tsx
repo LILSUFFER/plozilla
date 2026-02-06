@@ -138,8 +138,8 @@ export default function RankingsPage() {
   const parsed = useMemo(() => parseSearch(searchInput), [searchInput]);
   const isSearchActive = parsed !== null;
 
-  const filteredHands = useMemo(() => {
-    if (!parsed) return hands;
+  const filteredHands = useMemo((): { hand: RankedHand; originalIndex: number }[] => {
+    if (!parsed) return hands.map((hand, i) => ({ hand, originalIndex: i }));
     return hands
       .map((hand, i) => ({ hand, originalIndex: i }))
       .filter(({ hand, originalIndex }) => handMatchesSearch(hand, parsed, hands.length, originalIndex));
@@ -152,14 +152,8 @@ export default function RankingsPage() {
   const endIdx = Math.min(startIdx + perPage, totalFiltered);
 
   const pageItems = useMemo(() => {
-    if (!isSearchActive) {
-      return hands.slice(startIdx, endIdx).map((hand, i) => ({
-        hand,
-        originalIndex: startIdx + i,
-      }));
-    }
     return filteredHands.slice(startIdx, endIdx);
-  }, [hands, filteredHands, isSearchActive, startIdx, endIdx]);
+  }, [filteredHands, startIdx, endIdx]);
 
   const handlePerPageChange = (value: string) => {
     setPerPage(Number(value));
@@ -240,7 +234,7 @@ export default function RankingsPage() {
             <Trophy className="w-5 h-5" />
             {t('rankingsTitle')}
           </h2>
-          <p className="text-sm text-muted-foreground mt-1">{t('rankingsDesc')}</p>
+          <p className="text-sm text-muted-foreground mt-1">{t('rankingsDesc').replace('{n}', totalAll.toLocaleString())}</p>
         </div>
 
         <div className="flex items-start gap-2 p-3 rounded-md bg-muted/50 text-sm text-muted-foreground mb-4">
