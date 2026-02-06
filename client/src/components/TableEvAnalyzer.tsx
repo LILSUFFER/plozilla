@@ -370,6 +370,7 @@ export function TableEvAnalyzer() {
                   <div className={cn(
                     "w-14 h-14 rounded-full flex flex-col items-center justify-center border-2 transition-all shadow-lg",
                     isHero ? "bg-emerald-500/20 border-emerald-500 text-emerald-500" :
+                    isFish && seat.fish3bet ? "bg-red-500/20 border-red-500 text-red-500" :
                     isFish ? "bg-orange-500/20 border-orange-500 text-orange-500" :
                     isReg ? "bg-slate-400/20 border-slate-400 text-slate-400" :
                     "bg-slate-800 border-slate-600 text-slate-600 hover:border-slate-500"
