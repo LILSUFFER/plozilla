@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { TrendingUp, DollarSign, BookOpen, LogOut, Loader2, Trophy, Info, Search, X, AlertTriangle } from 'lucide-react';
+import { TrendingUp, DollarSign, BookOpen, LogOut, Loader2, Trophy, Info, Search, X, AlertTriangle, Copy, Check } from 'lucide-react';
 import { SiTelegram } from 'react-icons/si';
 import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
@@ -25,6 +25,10 @@ function cardIndexToCard(idx: number) {
     rank: RANKS_DECODE[idx >> 2] as any,
     suit: SUITS_DECODE[idx & 3] as any,
   };
+}
+
+function cardIndicesToNotation(cards: number[]): string {
+  return cards.map(c => RANKS_DECODE[c >> 2] + SUITS_DECODE[c & 3]).join('');
 }
 
 interface ApiHand {
@@ -199,6 +203,16 @@ function RankingsTable({ search, t }: { search: string; t: (key: any) => string 
   const [totalHands, setTotalHands] = useState(0);
   const [ready, setReady] = useState<boolean | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [copiedRank, setCopiedRank] = useState<number | null>(null);
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+
+  const handleCopy = useCallback((hand: ApiHand) => {
+    const notation = cardIndicesToNotation(hand.cards);
+    navigator.clipboard.writeText(notation);
+    setCopiedRank(hand.rank);
+    if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+    copyTimeoutRef.current = setTimeout(() => setCopiedRank(null), 1500);
+  }, []);
 
   const { data: initialData, isLoading: initialLoading } = useQuery<ApiResponse>({
     queryKey: ['/api/rankings', 'initial', search],
@@ -330,9 +344,10 @@ function RankingsTable({ search, t }: { search: string; t: (key: any) => string 
       </div>
 
       <div className="border rounded-md flex flex-col flex-1 min-h-0">
-        <div className="grid grid-cols-[3.5rem_1fr_3.5rem_3.5rem_3.5rem] text-xs font-medium text-muted-foreground border-b bg-muted/30 shrink-0">
+        <div className="grid grid-cols-[3.5rem_1fr_2rem_3.5rem_3.5rem_3.5rem] text-xs font-medium text-muted-foreground border-b bg-muted/30 shrink-0">
           <div className="px-2 py-2 text-center">{t('rankingsRank')}</div>
           <div className="px-2 py-2">{t('rankingsHand')}</div>
+          <div className="py-2" />
           <div className="px-2 py-2 text-center">{t('rankingsCombos')}</div>
           <div className="px-2 py-2 text-center">{t('rankingsEquity')}</div>
           <div className="px-2 py-2 text-right">{t('rankingsPercentile')}</div>
@@ -349,7 +364,7 @@ function RankingsTable({ search, t }: { search: string; t: (key: any) => string 
               return (
                 <div
                   key={virtualRow.key}
-                  className="grid grid-cols-[3.5rem_1fr_3.5rem_3.5rem_3.5rem] items-center border-b last:border-b-0 text-sm"
+                  className="grid grid-cols-[3.5rem_1fr_2rem_3.5rem_3.5rem_3.5rem] items-center border-b last:border-b-0 text-sm"
                   style={{
                     position: 'absolute',
                     top: 0,
@@ -367,6 +382,20 @@ function RankingsTable({ search, t }: { search: string; t: (key: any) => string 
                       </div>
                       <div className="px-2">
                         <CardChips cards={hand.cards.map(cardIndexToCard)} size="sm" />
+                      </div>
+                      <div className="flex items-center justify-center">
+                        <button
+                          onClick={() => handleCopy(hand)}
+                          className="p-0.5 rounded hover-elevate text-muted-foreground"
+                          title={cardIndicesToNotation(hand.cards)}
+                          data-testid={`button-copy-hand-${hand.rank}`}
+                        >
+                          {copiedRank === hand.rank ? (
+                            <Check className="w-3.5 h-3.5 text-green-500" />
+                          ) : (
+                            <Copy className="w-3.5 h-3.5" />
+                          )}
+                        </button>
                       </div>
                       <div className="px-2 text-center font-mono text-xs text-muted-foreground" data-testid={`combos-${hand.rank}`}>
                         {hand.comboCount}
@@ -386,6 +415,7 @@ function RankingsTable({ search, t }: { search: string; t: (key: any) => string 
                       <div className="px-2">
                         <div className="h-5 w-32 bg-muted rounded animate-pulse" />
                       </div>
+                      <div />
                       <div className="px-2 text-center">
                         <div className="h-3 w-6 bg-muted rounded animate-pulse mx-auto" />
                       </div>
