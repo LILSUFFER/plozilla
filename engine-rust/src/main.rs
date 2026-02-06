@@ -270,6 +270,22 @@ impl Xorshift64 {
     }
 }
 
+fn card_bitmap(cards: &[u8]) -> u64 {
+    let mut bm: u64 = 0;
+    for &c in cards { bm |= 1u64 << (c as u64); }
+    bm
+}
+
+fn mix_seed(seed: u64) -> u64 {
+    let mut s = seed;
+    s ^= s >> 30;
+    s = s.wrapping_mul(0xbf58476d1ce4e5b9);
+    s ^= s >> 27;
+    s = s.wrapping_mul(0x94d049bb133111eb);
+    s ^= s >> 31;
+    if s == 0 { 1 } else { s }
+}
+
 fn sample_villain(pool: &[u8], rng: &mut Xorshift64) -> [u8; 5] {
     let n = pool.len();
     let mut indices = [0usize; 5];
@@ -322,6 +338,11 @@ fn run_precompute(args: &[String]) {
         .and_then(|s| s.parse().ok()).unwrap_or(50);
     let threads_str = parse_flag(args, "--threads").unwrap_or_else(|| "auto".into());
     let output = parse_flag(args, "--out").unwrap_or_else(|| "plo5_rankings_prod.bin".into());
+    let seed: u64 = parse_flag(args, "--seed")
+        .and_then(|s| s.parse().ok()).unwrap_or(12345);
+    let crn_mode = parse_flag(args, "--crn")
+        .map(|s| s == "on" || s == "yes" || s == "true")
+        .unwrap_or(true);
 
     let full_enum = boards_str == "full";
     let boards_per_hero: u32 = if full_enum {
@@ -348,6 +369,8 @@ fn run_precompute(args: &[String]) {
     eprintln!("  Mode:               {}", if full_enum { "FULL ENUMERATION" } else { "RANDOM BOARD SAMPLING" });
     eprintln!("  Boards per hero:    {}", boards_per_hero);
     eprintln!("  Villain samples:    {}", villain_samples);
+    eprintln!("  Seed:               {}", seed);
+    eprintln!("  CRN mode:           {}", if crn_mode && !full_enum { "ON (shared board scenarios)" } else if full_enum { "N/A (full enum)" } else { "OFF (independent sampling)" });
     eprintln!("  Threads:            {}", num_threads);
     eprintln!("  Output:             {}", output);
     eprintln!();
@@ -387,6 +410,33 @@ fn run_precompute(args: &[String]) {
     eprintln!("       {} showdowns/hero × {} heroes = {:.2}T total showdowns",
         evals_per_hero, num_hands, total_evals as f64 / 1e12);
 
+    struct CrnScenario {
+        board: [u8; 5],
+        board_bm: u64,
+        villain_seeds: Vec<u64>,
+    }
+
+    let crn_active = crn_mode && !full_enum;
+    let scenarios: Vec<CrnScenario> = if crn_active {
+        eprintln!("       CRN: Pre-generating {} board scenarios from full 52-card deck (seed={})...", boards_per_hero, seed);
+        let mut scenario_rng = Xorshift64::new(seed);
+        let all52: Vec<u8> = (0..52u8).collect();
+        let sc: Vec<CrnScenario> = (0..boards_per_hero).map(|_| {
+            let board = sample_villain(&all52, &mut scenario_rng);
+            let board_bm = card_bitmap(&board);
+            let villain_seeds: Vec<u64> = (0..villain_samples)
+                .map(|_| scenario_rng.next())
+                .collect();
+            CrnScenario { board, board_bm, villain_seeds }
+        }).collect();
+        eprintln!("       {} scenarios generated ({} villain seeds each).", sc.len(), villain_samples);
+        eprintln!("       Expected boards/hero after filtering: ~{:.0} ({:.1}%)",
+            sc.len() as f64 * 0.5902, 59.02);
+        sc
+    } else {
+        Vec::new()
+    };
+
     let progress = AtomicU64::new(0);
     let global_boards_total = AtomicU64::new(0);
     let global_showdowns_total = AtomicU64::new(0);
@@ -398,31 +448,60 @@ fn run_precompute(args: &[String]) {
             .map(|t| {
                 let table_ref = &table;
                 let canonical_ref = &canonical;
+                let scenarios_ref = &scenarios;
                 let progress_ref = &progress;
                 let boards_total_ref = &global_boards_total;
                 let showdowns_total_ref = &global_showdowns_total;
                 let full = full_enum;
                 let bph = boards_per_hero;
+                let use_crn = crn_active;
+                let thread_seed = seed.wrapping_add(t as u64).wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
                 s.spawn(move || {
                     let start = t * chunk_size;
                     let end = (start + chunk_size).min(num_hands);
                     let mut thread_results: Vec<(f64, u64)> = Vec::with_capacity(end - start);
-                    let mut rng = Xorshift64::new(
-                        (t as u64 + 1).wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407)
-                    );
+                    let mut rng = Xorshift64::new(thread_seed);
                     let mut local_boards: u64 = 0;
                     let mut local_showdowns: u64 = 0;
 
                     for i in start..end {
                         let hero = &canonical_ref[i].0;
                         let hero_2s = two_card_subsets(hero);
-                        let remaining: Vec<u8> = (0..52u8).filter(|c| !hero.contains(c)).collect();
-                        let rem_len = remaining.len();
 
                         let mut equity_sum = 0.0f64;
                         let mut count = 0u64;
 
-                        if full {
+                        if use_crn {
+                            let hero_bm = card_bitmap(hero);
+                            for sc in scenarios_ref.iter() {
+                                if (hero_bm & sc.board_bm) != 0 { continue; }
+                                local_boards += 1;
+
+                                let board_3s = three_card_subsets(&sc.board);
+                                let hero_rank = eval_best(&hero_2s, &board_3s, table_ref);
+
+                                let combined_bm = hero_bm | sc.board_bm;
+                                let pool: Vec<u8> = (0..52u8)
+                                    .filter(|c| (combined_bm >> (*c as u64)) & 1 == 0)
+                                    .collect();
+
+                                for &vseed in &sc.villain_seeds {
+                                    let mut vrng = Xorshift64::new(mix_seed(vseed));
+                                    let villain = sample_villain(&pool, &mut vrng);
+                                    let villain_2s = two_card_subsets(&villain);
+                                    let villain_rank = eval_best(&villain_2s, &board_3s, table_ref);
+                                    if hero_rank < villain_rank {
+                                        equity_sum += 1.0;
+                                    } else if hero_rank == villain_rank {
+                                        equity_sum += 0.5;
+                                    }
+                                    count += 1;
+                                    local_showdowns += 1;
+                                }
+                            }
+                        } else if full {
+                            let remaining: Vec<u8> = (0..52u8).filter(|c| !hero.contains(c)).collect();
+                            let rem_len = remaining.len();
                             for b0 in 0..(rem_len - 4) {
                                 for b1 in (b0 + 1)..(rem_len - 3) {
                                     for b2 in (b1 + 1)..(rem_len - 2) {
@@ -462,6 +541,7 @@ fn run_precompute(args: &[String]) {
                                 }
                             }
                         } else {
+                            let remaining: Vec<u8> = (0..52u8).filter(|c| !hero.contains(c)).collect();
                             for _ in 0..bph {
                                 local_boards += 1;
                                 let board = sample_villain(&remaining, &mut rng);
@@ -590,6 +670,11 @@ fn run_precompute(args: &[String]) {
     eprintln!("  villain_samples_per_board: {}", villain_samples);
     eprintln!("  villain_samples_total:     {}", showdowns_total);
     eprintln!("  total_showdown_evals:      {}", showdowns_total);
+    eprintln!("  seed:                      {}", seed);
+    eprintln!("  crn_mode:                  {}", if crn_active { "ON" } else { "OFF" });
+    if crn_active {
+        eprintln!("  crn_scenarios_generated:   {}", scenarios.len());
+    }
     eprintln!("  elapsed_seconds:           {:.2}", total_elapsed);
     eprintln!("  compute_seconds:           {:.2}", compute_elapsed);
     eprintln!("  showdowns_per_second:      {:.0}", showdowns_per_sec);
@@ -1004,6 +1089,95 @@ fn print_bin_info(path: &str) {
     eprintln!("  File size:       {} bytes ({:.2} MB)", data.len(), data.len() as f64 / 1e6);
 }
 
+fn run_equity(args: &[String]) {
+    let hand_str = parse_flag(args, "--hand").unwrap_or_else(|| {
+        eprintln!("Usage: plo5_ranker equity --hand <hand> [--trials N] [--seed S]");
+        eprintln!("Example: plo5_ranker equity --hand AcAdKhQh5s --trials 600000 --seed 12345");
+        std::process::exit(1);
+    });
+    let trials: u64 = parse_flag(args, "--trials")
+        .and_then(|s| s.parse().ok()).unwrap_or(600_000);
+    let seed: u64 = parse_flag(args, "--seed")
+        .and_then(|s| s.parse().ok()).unwrap_or(12345);
+
+    let hand = parse_hand(&hand_str).unwrap_or_else(|| {
+        eprintln!("Could not parse hand: {}", hand_str);
+        std::process::exit(1);
+    });
+    let canonical = canonicalize(&hand);
+    let card_names: Vec<String> = canonical.iter().map(|&c| card_name(c)).collect();
+
+    eprintln!("╔══════════════════════════════════════════════╗");
+    eprintln!("║       PLO5 Single-Hand Equity (PPT-style)    ║");
+    eprintln!("╚══════════════════════════════════════════════╝");
+    eprintln!("  Hand:    {} → canonical: {}", hand_str, card_names.join(""));
+    eprintln!("  Trials:  {}", trials);
+    eprintln!("  Seed:    {}", seed);
+    eprintln!();
+
+    let t0 = Instant::now();
+    eprintln!("[1/2] Initializing eval table...");
+    let table = init_eval_table();
+    eprintln!("       Done in {:.2}s", t0.elapsed().as_secs_f64());
+
+    eprintln!("[2/2] Running deterministic MC...");
+    let hero_2s = two_card_subsets(&canonical);
+    let remaining: Vec<u8> = (0..52u8).filter(|c| !canonical.contains(c)).collect();
+
+    let num_threads = num_cpus();
+    let chunk = (trials as usize + num_threads - 1) / num_threads;
+
+    let mc_equity: f64 = thread::scope(|s| {
+        let handles: Vec<_> = (0..num_threads).map(|t| {
+            let table_ref = &table;
+            let hero_2s_ref = &hero_2s;
+            let remaining_ref = &remaining;
+            s.spawn(move || {
+                let start = t * chunk;
+                let end = ((t + 1) * chunk).min(trials as usize);
+                let mut rng = Xorshift64::new(
+                    mix_seed(seed.wrapping_add(t as u64))
+                );
+                let mut wins = 0.0f64;
+                let mut total = 0u64;
+                for _ in start..end {
+                    let board = sample_villain(remaining_ref, &mut rng);
+                    let mut sorted_board = board;
+                    sorted_board.sort();
+                    let board_3s = three_card_subsets(&sorted_board);
+                    let hero_rank = eval_best(hero_2s_ref, &board_3s, table_ref);
+
+                    let pool: Vec<u8> = remaining_ref.iter()
+                        .copied().filter(|c| !board.contains(c)).collect();
+                    let villain = sample_villain(&pool, &mut rng);
+                    let villain_2s = two_card_subsets(&villain);
+                    let villain_rank = eval_best(&villain_2s, &board_3s, table_ref);
+
+                    if hero_rank < villain_rank { wins += 1.0; }
+                    else if hero_rank == villain_rank { wins += 0.5; }
+                    total += 1;
+                }
+                (wins, total)
+            })
+        }).collect();
+        let (total_wins, total_count): (f64, u64) = handles.into_iter()
+            .map(|h| h.join().unwrap())
+            .fold((0.0, 0), |(w, c), (w2, c2)| (w + w2, c + c2));
+        total_wins / total_count as f64
+    });
+
+    let elapsed = t0.elapsed().as_secs_f64();
+    eprintln!();
+    eprintln!("╔══════════════════════════════════════════════╗");
+    eprintln!("║              Result                          ║");
+    eprintln!("╚══════════════════════════════════════════════╝");
+    eprintln!("  Hand:    {}", card_names.join(""));
+    eprintln!("  Equity:  {:.3}%", mc_equity * 100.0);
+    eprintln!("  Trials:  {}", trials);
+    eprintln!("  Seed:    {}", seed);
+    eprintln!("  Time:    {:.1}s", elapsed);
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
@@ -1013,12 +1187,20 @@ fn main() {
         eprintln!("  plo5_ranker precompute [options]");
         eprintln!("    --boards full|<N>       Board mode: 'full' = exhaustive C(47,5), <N> = random sample N boards");
         eprintln!("    --villain-samples <N>   Random villain hands per board (default: 50)");
+        eprintln!("    --seed <u64>            RNG seed (default: 12345)");
+        eprintln!("    --crn on|off            Common Random Numbers mode (default: on)");
         eprintln!("    --threads auto|<N>      Thread count (default: auto)");
         eprintln!("    --out <path>            Output file (default: plo5_rankings_prod.bin)");
+        eprintln!();
+        eprintln!("  plo5_ranker equity [options]");
+        eprintln!("    --hand <hand>           Hand to evaluate (e.g., AcAdKhQh5s)");
+        eprintln!("    --trials <N>            MC trials (default: 600000)");
+        eprintln!("    --seed <u64>            RNG seed (default: 12345)");
         eprintln!();
         eprintln!("  plo5_ranker accuracy [options]");
         eprintln!("    --bin <path>            Binary file to test (default: plo5_rankings_prod.bin)");
         eprintln!("    --trials <N>            MC trials per hand (default: 2000000)");
+        eprintln!("    --test-hands <list>     Comma-separated hands to test");
         eprintln!();
         eprintln!("  plo5_ranker baseline [options]");
         eprintln!("    --out <path>            Output file (default: baseline.json)");
@@ -1031,19 +1213,20 @@ fn main() {
         eprintln!();
         eprintln!("  plo5_ranker info");
         eprintln!();
-        eprintln!("Example (full production run on VPS):");
-        eprintln!("  plo5_ranker precompute --boards full --villain-samples 50 --threads auto --out ../public/plo5_rankings_prod.bin");
+        eprintln!("Example (Stage-2 production with CRN):");
+        eprintln!("  plo5_ranker precompute --boards 20000 --villain-samples 20 --seed 12345 --crn on --threads auto");
         std::process::exit(0);
     }
 
     match args[1].as_str() {
         "precompute" => run_precompute(&args[2..]),
+        "equity" => run_equity(&args[2..]),
         "accuracy" => run_accuracy(&args[2..]),
         "baseline" => run_baseline(&args[2..]),
         "validate" => run_validate(&args[2..]),
         "info" => run_info(),
         other => {
-            eprintln!("Unknown command: {}. Use precompute, accuracy, baseline, validate, or info.", other);
+            eprintln!("Unknown command: {}. Use precompute, equity, accuracy, baseline, validate, or info.", other);
             std::process::exit(1);
         }
     }

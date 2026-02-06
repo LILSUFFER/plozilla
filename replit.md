@@ -7,18 +7,26 @@ A browser-based 5-Card Omaha equity calculator similar to ProPokerTools Oracle. 
 ## Recent Changes (Feb 2026)
 - **Native Rust Engine for Hand Rankings** (Feb 2026): High-performance PLO5 ranking engine
   - **Engine**: `engine-rust/` — native Rust CLI (`plo5_ranker`) with Two Plus Two lookup table
-  - **Commands**: precompute, baseline, validate, info
+  - **Commands**: precompute, equity, accuracy, baseline, validate, info
   - **Binary format**: PLO5 magic (4 bytes) + 64-byte header + 20 bytes/hand (134,459 hands = 2.69MB)
     - Header: version, numHands, boardsProcessed, villainSamples, avgSamples, minSamples, maxSamples, timestamp
     - Record: 5 card bytes + 1 combo count + 4 equity (f32) + 4 rank (u32) + 4 percentile (f32) + 2 reserved
   - **Two modes**: `--boards full` (exhaustive C(47,5)=1,533,939 boards/hero) or `--boards N` (random board sampling)
   - **Measured throughput**: ~929K showdowns/sec on 8-thread Replit (each showdown = 100 combo evals for hero + 100 for villain)
   - **Full enumeration is infeasible**: C(47,5)×V=50×134K heroes = 10.3T showdowns → ~128 days at 929K/sec
-  - **Practical VPS production**: `--boards 10000 --villain-samples 10` → 100K showdowns/hero → ~4h on fast 8-core VPS
+  - **Deterministic CRN mode** (default ON): Common Random Numbers for stable, reproducible rankings
+    - Pre-generates shared board scenarios from full 52-card deck with fixed seed
+    - Same scenarios reused for ALL 134K heroes → greatly reduces relative variance
+    - `--seed <u64>` (default 12345), `--crn on|off` (default on)
+    - Acceptance rate: ~59% of boards valid per hero (C(47,5)/C(52,5))
+    - Bitmap-based O(1) overlap checking for performance
+  - **Equity command**: `plo5_ranker equity --hand AcAdKhQh5s --trials 600000 --seed 12345` — single-hand PPT-style MC
+  - **Practical VPS production**: `--boards 10000 --villain-samples 10` → ~4h on fast 8-core VPS
+  - **Stage-2 config**: `--boards 20000 --villain-samples 20 --seed 12345 --crn on` (higher precision)
   - **Quick test**: `--boards 100 --villain-samples 1` (18 seconds for all 134K hands)
-  - **Accuracy command**: `plo5_ranker accuracy --bin file.bin --trials 2000000` — tests 10 hands against unbiased MC
+  - **Accuracy command**: `plo5_ranker accuracy --bin file.bin --trials 2000000 [--test-hands hand1,hand2]`
   - **Card encoding conversion**: Rust uses suit×13+rank, Server uses rank×4+suit — converted during binary read
-  - **Scripts**: `scripts/precompute.sh` (build + run), `scripts/deploy_rankings.sh` (verify + restart server)
+  - **Scripts**: `scripts/vps_setup.sh` (system deps + Rust), `scripts/vps_run_stage1.sh`, `scripts/vps_run_stage2.sh` (CRN)
   - **Server**: pure file-based lookup only (`server/rankings-cache.ts`), reads `public/plo5_rankings_prod.bin`
   - **Legacy JS scripts**: `scripts/precompute_rankings_quasi_exact.ts`, `scripts/precompute_canonical_rankings_v4.ts` (superseded)
   - API: `/api/rankings` (paginated with search), `/api/rankings/status`, `/api/rankings/lookup`
