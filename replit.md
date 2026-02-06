@@ -12,13 +12,16 @@ A browser-based 5-Card Omaha equity calculator similar to ProPokerTools Oracle. 
     - Per board per hero: samples K villain hands from correct 42-card pool (52 - 5 board - 5 hero)
     - **Unbiased**: villain never overlaps hero cards, eliminates ~0.3-1.0% systematic bias from v1
     - Fisher-Yates shuffle for villain sampling, configurable K via VILLAIN_SAMPLES env var
-    - VILLAIN_SAMPLES defaults to max(1, ceil(0.1 / BOARD_SAMPLE_RATE)) for accuracy at any sample rate
-    - With K=1 and full board enumeration: ~2.6M samples per hero, ~0.04% standard deviation
-    - Adaptive refinement: Pass 2 for unstable hands when using board sampling
     - Worker thread parallelism (NUM_WORKERS env var), ESM-compatible with fileURLToPath fallback
     - Board sampling: BOARD_SAMPLE_RATE env var (0.001=quick test, 1.0=full)
     - Outputs `public/plo5_rankings_quasi_v1.json.gz` (version 2, method: quasi-exact-board-enum-mc-villain)
     - Each record: hand_key, card0-4, combo_count, equity, rank, percentile
+  - **Production file** (Feb 2026): Generated via chunked multi-pass computation
+    - 7 passes (offsets 0-6) at boardSampleRate=0.005, villainSamples=1
+    - 93,524 total boards processed, 55,022 avg samples per hand (min 45K, max 57K)
+    - Standard deviation ~0.2% per hand — production quality
+    - Chunked computation scripts: `/tmp/chunk_compute.mjs`, `/tmp/merge_chunks.mjs`
+    - Quality guard: rejects files with <10K samples/hand (unless ALLOW_TEST_RANKINGS=true)
   - **Validation CLI**: `scripts/check_equity_vs_random.ts` — compares unbiased MC (mode A) vs biased histogram (mode B)
     - Usage: `npx tsx scripts/check_equity_vs_random.ts "Js Th 5d Tc 4c" --trials 100000`
     - Confirms JsTh5dTc4c: unbiased MC = 53.87% (matches PPT 53.89%), biased histogram = 53.16% (0.71% off)

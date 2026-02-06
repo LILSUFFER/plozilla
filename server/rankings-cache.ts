@@ -72,8 +72,8 @@ interface RankingsData {
 export function getRankingsStatus() {
   if (!cachedData) return { ready: false, error: loadError };
   const meta = cachedData.metadata;
-  const isTestFile = meta ? meta.boardSampleRate < 1.0 : false;
-  const lowSamples = meta ? meta.samplesPerHand < 50000 : false;
+  const isTestFile = meta ? meta.samplesPerHand < 10000 : false;
+  const lowSamples = meta ? meta.samplesPerHand < 40000 : false;
 
   return {
     ready: true,
@@ -186,8 +186,19 @@ export function loadRankingsFromFile(): boolean {
       }
     };
 
-    if (cachedData.metadata && cachedData.metadata.boardSampleRate < 1.0) {
-      console.warn('WARNING: Loaded rankings from a TEST FILE (boardSampleRate < 1.0)');
+    const allowTest = process.env.ALLOW_TEST_RANKINGS === 'true';
+    const meta = cachedData.metadata;
+    const isTestFile = meta ? meta.samplesPerHand < 10000 : false;
+
+    if (isTestFile && !allowTest) {
+      loadError = `REJECTED: Test rankings file detected (samplesPerHand=${meta!.samplesPerHand}, need >=10000). Set ALLOW_TEST_RANKINGS=true to override.`;
+      console.error(`HARD GUARD: ${loadError}`);
+      cachedData = null;
+      return false;
+    }
+
+    if (isTestFile) {
+      console.warn('WARNING: Serving TEST rankings file (ALLOW_TEST_RANKINGS=true overrides guard)');
     }
 
     loadError = null;
