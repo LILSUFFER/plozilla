@@ -5,14 +5,17 @@
 A browser-based 5-Card Omaha equity calculator similar to ProPokerTools Oracle. The calculator supports board input in valid poker states (Preflop: 0, Flop: 3, Turn: 4, River: 5 cards), multiple player hands (5 cards each), concatenated card notation (e.g., "7s6hJdQc8c"), and performs exhaustive equity calculations with accurate Omaha hand evaluation (exactly 2 hole cards + 3 board cards). Built as a client-side React TypeScript application.
 
 ## Recent Changes (Feb 2026)
-- **Canonical Hand Rankings v4** (Feb 2026): ProPokerTools-style ranking with suit canonicalization
-  - Suit canonicalization reduces 2,598,960 hands to 134,459 canonical forms (19.3x reduction)
-  - Algorithm: for each hand, try all 24 suit permutations, pick lexicographically smallest sorted card set
-  - 10,000 Monte Carlo trials per canonical hand (~2.8 hours one-time computation)
-  - **Resumable seed**: individual rows in `canonical_hand_rankings` PostgreSQL table, survives server restarts
-  - Each row stores: hand_key (canonical string), card0-4, equity, combo_count, version
-  - On restart: checks how many hands are already computed, continues from where it left off
-  - Server stays responsive during seed (yields to event loop after each hand)
+- **Canonical Hand Rankings v4 — Offline/Online Separation** (Feb 2026): ProPokerTools-style ranking with suit canonicalization
+  - Strict offline/online architecture: ZERO equity calculations at runtime
+  - **Offline precompute**: `scripts/precompute_canonical_rankings_v4.ts` (run via `npm run precompute:rankings`)
+    - Enumerates 134,459 canonical hands (suit canonicalization: 24 suit permutations, pick lex-smallest)
+    - 10,000 Monte Carlo trials per canonical hand using WASM evaluator
+    - Outputs `public/plo5_rankings_v4.json.gz` (static deployable file)
+    - Each record: hand_key, card0-4, combo_count, equity, rank, percentile
+  - **Runtime server**: pure file-based lookup only (`server/rankings-cache.ts`)
+    - Loads from `public/plo5_rankings_v4.json.gz` on startup
+    - Zero simulation/calculation code in server — `calculationCalls` always 0
+    - If file missing, returns clear error ("Run: npm run precompute:rankings"), never seeds
   - API: `/api/rankings` (paginated with search), `/api/rankings/status`, `/api/rankings/lookup`
   - Frontend shows 134K canonical hands with combo count column
   - Each canonical hand shows: rank, cards (canonical suits), combos (4-24), equity %, percentile
