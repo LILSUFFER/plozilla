@@ -400,20 +400,7 @@ export function TableEvAnalyzer() {
         <CardHeader className="pb-2">
           <CardTitle className="text-center text-lg">Table</CardTitle>
         </CardHeader>
-        <CardContent className="flex-1 flex flex-col items-center justify-center gap-6">
-          <div className="flex items-center gap-2">
-            {([6, 5, 4, 2] as TableSize[]).map((size) => (
-              <Button
-                key={size}
-                variant={tableSize === size ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => handleTableSizeChange(size)}
-                data-testid={`button-table-${size}`}
-              >
-                {TABLE_CONFIGS[size].label}
-              </Button>
-            ))}
-          </div>
+        <CardContent className="flex-1 flex flex-col items-center justify-center gap-6" style={{ paddingBottom: '15%' }}>
           <div className="relative w-full max-w-xl aspect-[16/10]">
             <div className="absolute inset-0 rounded-[100px] border-2 border-slate-700/50 bg-slate-800 shadow-2xl" />
             <div className="absolute inset-6 rounded-[80px] border border-slate-600/50 bg-slate-700 flex items-center justify-center">
@@ -469,6 +456,19 @@ export function TableEvAnalyzer() {
                 </button>
               );
             })}
+          </div>
+          <div className="flex items-center gap-2">
+            {([6, 5, 4, 2] as TableSize[]).map((size) => (
+              <Button
+                key={size}
+                variant={tableSize === size ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handleTableSizeChange(size)}
+                data-testid={`button-table-${size}`}
+              >
+                {TABLE_CONFIGS[size].label}
+              </Button>
+            ))}
           </div>
         </CardContent>
         <div className="px-6 pb-4">
