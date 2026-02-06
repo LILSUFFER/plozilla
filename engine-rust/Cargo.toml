@@ -1,0 +1,12 @@
+[package]
+name = "plo5-engine"
+version = "2.0.0"
+edition = "2021"
+
+[[bin]]
+name = "plo5_ranker"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = true

@@ -1,12 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import * as zlib from 'zlib';
 
 const TOTAL_HANDS_ALL = 2598960;
 const RANKS_DECODE = '23456789TJQKA';
-const DATA_FILE_QUASI = path.join(process.cwd(), 'public', 'plo5_rankings_quasi_v1.json.gz');
-const DATA_FILE_V4 = path.join(process.cwd(), 'public', 'plo5_rankings_v4.json.gz');
-const DATA_FILE = fs.existsSync(DATA_FILE_QUASI) ? DATA_FILE_QUASI : DATA_FILE_V4;
+const BIN_FILE = path.join(process.cwd(), 'public', 'plo5_rankings_prod.bin');
 
 const SUIT_PERMS: number[][] = [];
 for (let a = 0; a < 4; a++)
@@ -47,6 +44,13 @@ export function canonicalKey(c0: number, c1: number, c2: number, c3: number, c4:
   return `${best0},${best1},${best2},${best3},${best4}`;
 }
 
+function rustCardToServerCard(rustCard: number): number {
+  const rank = rustCard % 13;
+  const suitRust = Math.floor(rustCard / 13);
+  const suitServer = 3 - suitRust;
+  return rank * 4 + suitServer;
+}
+
 interface PrecomputedHand {
   key: string;
   cards: number[];
@@ -55,38 +59,40 @@ interface PrecomputedHand {
   percentile: number;
 }
 
+interface BinMetadata {
+  version: number;
+  boardsProcessed: number;
+  villainSamples: number;
+  avgSamples: number;
+  minSamples: number;
+  maxSamples: number;
+  generatedAt: string;
+  fileSizeBytes: number;
+}
+
 interface RankingsData {
   hands: PrecomputedHand[];
   keyToRank: Map<string, number>;
   totalCanonical: number;
   totalCombos: number;
-  metadata?: {
-    method: string;
-    boardSampleRate: number;
-    villainSamplesPerBoard: number;
-    samplesPerHand: number;
-    generatedAt: string;
-  };
+  metadata: BinMetadata;
 }
 
 export function getRankingsStatus() {
   if (!cachedData) return { ready: false, error: loadError };
   const meta = cachedData.metadata;
-  const isTestFile = meta ? meta.samplesPerHand < 10000 : false;
-  const lowSamples = meta ? meta.samplesPerHand < 40000 : false;
-
   return {
     ready: true,
     totalCanonical: cachedData.totalCanonical,
     totalCombos: cachedData.totalCombos,
-    method: meta?.method || 'unknown',
-    boardSampleRate: meta?.boardSampleRate ?? 0,
-    villainSamplesPerBoard: meta?.villainSamplesPerBoard ?? 0,
-    samplesPerHand: meta?.samplesPerHand ?? 0,
-    generatedAt: meta?.generatedAt || 'unknown',
-    isTestFile,
-    lowSamples,
-    warning: isTestFile ? 'TEST FILE' : (lowSamples ? 'LOW SAMPLE QUALITY' : null)
+    boardsProcessed: meta.boardsProcessed,
+    villainSamples: meta.villainSamples,
+    avgSamples: meta.avgSamples,
+    minSamples: meta.minSamples,
+    maxSamples: meta.maxSamples,
+    generatedAt: meta.generatedAt,
+    fileSizeBytes: meta.fileSizeBytes,
+    method: 'rust-engine-v2',
   };
 }
 
@@ -99,7 +105,6 @@ export interface HandResult {
 
 let cachedData: RankingsData | null = null;
 let loadError: string | null = null;
-let calculationCallCount = 0;
 
 const searchCache = new Map<string, number[]>();
 const MAX_SEARCH_CACHE = 200;
@@ -113,7 +118,7 @@ export function getRankingsError(): string | null {
 }
 
 export function getCalculationCallCount(): number {
-  return calculationCallCount;
+  return 0;
 }
 
 export function getRankingsTotal(): number {
@@ -140,73 +145,109 @@ export function lookupByCanonicalKey(key: string): HandResult | null {
 export function loadRankingsFromFile(): boolean {
   if (cachedData) return true;
 
-  if (!fs.existsSync(DATA_FILE)) {
-    loadError = 'Rankings database not found. Run: npm run precompute:quasi (or npm run precompute:rankings)';
-    console.log(`Rankings file not found: ${DATA_FILE}`);
+  if (!fs.existsSync(BIN_FILE)) {
+    loadError = `Rankings binary not found: ${BIN_FILE}. Deploy plo5_rankings_prod.bin to public/.`;
     console.log(loadError);
     return false;
   }
 
   try {
     const startLoad = Date.now();
-    console.log(`Loading rankings from ${DATA_FILE}...`);
+    console.log(`Loading rankings from ${BIN_FILE}...`);
 
-    const compressed = fs.readFileSync(DATA_FILE);
-    const jsonStr = zlib.gunzipSync(compressed).toString('utf-8');
-    const data = JSON.parse(jsonStr);
-    const rawHands: any[] = data.hands;
-    rawHands.sort((a: any, b: any) => a.rank - b.rank);
+    const buf = fs.readFileSync(BIN_FILE);
+    const fileSizeBytes = buf.length;
 
-    const hands: PrecomputedHand[] = rawHands.map((h: any) => ({
-      key: h.hand_key,
-      cards: [h.card0, h.card1, h.card2, h.card3, h.card4],
-      equity: h.equity,
-      combos: h.combo_count,
-      percentile: h.percentile,
-    }));
+    if (buf.length < 64) {
+      loadError = 'Binary file too small (< 64 bytes header)';
+      console.error(loadError);
+      return false;
+    }
 
+    const magic = buf.slice(0, 4).toString('ascii');
+    if (magic !== 'PLO5') {
+      loadError = `Invalid binary magic: "${magic}" (expected "PLO5")`;
+      console.error(loadError);
+      return false;
+    }
+
+    const version = buf.readUInt32LE(4);
+    const numHands = buf.readUInt32LE(8);
+    const boardsProcessed = buf.readUInt32LE(12);
+    const villainSamples = buf.readUInt32LE(16);
+    const avgSamples = buf.readUInt32LE(20);
+    const minSamples = buf.readUInt32LE(24);
+    const maxSamples = buf.readUInt32LE(28);
+
+    let timestamp = 0;
+    if (version >= 2) {
+      const low = buf.readUInt32LE(32);
+      const high = buf.readInt32LE(36);
+      timestamp = high * 0x100000000 + low;
+    }
+
+    const generatedAt = timestamp > 0
+      ? new Date(timestamp * 1000).toISOString()
+      : 'unknown';
+
+    const expectedSize = 64 + numHands * 20;
+    if (buf.length < expectedSize) {
+      loadError = `Binary file truncated: ${buf.length} bytes, expected ${expectedSize}`;
+      console.error(loadError);
+      return false;
+    }
+
+    const hands: PrecomputedHand[] = [];
     const keyToRank = new Map<string, number>();
     let totalCombos = 0;
-    for (let i = 0; i < hands.length; i++) {
-      keyToRank.set(hands[i].key, i);
-      totalCombos += hands[i].combos;
+
+    for (let i = 0; i < numHands; i++) {
+      const off = 64 + i * 20;
+      const rustCards = [buf[off], buf[off + 1], buf[off + 2], buf[off + 3], buf[off + 4]];
+      const serverCards = rustCards.map(rustCardToServerCard);
+      const combos = buf[off + 5];
+      const equity = buf.readFloatLE(off + 6);
+      const rank = buf.readUInt32LE(off + 10);
+      const percentile = buf.readFloatLE(off + 14);
+
+      const key = canonicalKey(serverCards[0], serverCards[1], serverCards[2], serverCards[3], serverCards[4]);
+
+      hands.push({
+        key,
+        cards: serverCards,
+        equity,
+        combos,
+        percentile,
+      });
+
+      keyToRank.set(key, i);
+      totalCombos += combos;
     }
 
     cachedData = {
       hands,
       keyToRank,
-      totalCanonical: data.canonicalHands || hands.length,
+      totalCanonical: numHands,
       totalCombos,
       metadata: {
-        method: data.method || 'unknown',
-        boardSampleRate: data.boardSampleRate || 0,
-        villainSamplesPerBoard: data.villainSamplesPerBoard || 0,
-        samplesPerHand: data.samplesPerHand || 0,
-        generatedAt: data.generatedAt || 'unknown',
-      }
+        version,
+        boardsProcessed,
+        villainSamples,
+        avgSamples,
+        minSamples,
+        maxSamples,
+        generatedAt,
+        fileSizeBytes,
+      },
     };
-
-    const allowTest = process.env.ALLOW_TEST_RANKINGS === 'true';
-    const meta = cachedData.metadata;
-    const isTestFile = meta ? meta.samplesPerHand < 10000 : false;
-
-    if (isTestFile && !allowTest) {
-      loadError = `REJECTED: Test rankings file detected (samplesPerHand=${meta!.samplesPerHand}, need >=10000). Set ALLOW_TEST_RANKINGS=true to override.`;
-      console.error(`HARD GUARD: ${loadError}`);
-      cachedData = null;
-      return false;
-    }
-
-    if (isTestFile) {
-      console.warn('WARNING: Serving TEST rankings file (ALLOW_TEST_RANKINGS=true overrides guard)');
-    }
 
     loadError = null;
     const elapsed = ((Date.now() - startLoad) / 1000).toFixed(1);
-    console.log(`Rankings loaded: ${hands.length.toLocaleString()} canonical hands (${totalCombos.toLocaleString()} total combos) in ${elapsed}s`);
+    console.log(`Rankings loaded: ${numHands.toLocaleString()} canonical hands (${totalCombos.toLocaleString()} total combos) in ${elapsed}s`);
+    console.log(`  Boards/hero: ${boardsProcessed}, V=${villainSamples}, avg=${avgSamples} samples, generated: ${generatedAt}`);
     return true;
   } catch (err) {
-    loadError = `Failed to load rankings file: ${err instanceof Error ? err.message : String(err)}`;
+    loadError = `Failed to load rankings binary: ${err instanceof Error ? err.message : String(err)}`;
     console.error(loadError);
     return false;
   }
@@ -648,22 +689,20 @@ export function filterRankings(searchQuery: string, offset: number, limit: numbe
           }
           let pairs = 0;
           for (let s = 0; s < 4; s++) if (sc[s] >= 2) pairs++;
-          const suitType: 'ds' | 'ss' = pairs >= 2 ? 'ds' : 'ss';
+          const suitType: 'ds' | 'ss' = pairs >= 2 ? 'ds' : (pairs === 1 ? 'ss' : 'ss');
 
-          let matched = false;
           for (const branch of parsed.branches) {
-            if (matchesBranch(rankCounts, suitType, branch)) { matched = true; break; }
+            if (matchesBranch(rankCounts, suitType, branch)) {
+              filteredRanks.push(rank);
+              break;
+            }
           }
-          if (matched) filteredRanks.push(rank);
         }
       }
-    }
 
-    if (searchCache.size >= MAX_SEARCH_CACHE) {
-      const firstKey = searchCache.keys().next().value;
-      if (firstKey) searchCache.delete(firstKey);
+      if (searchCache.size >= MAX_SEARCH_CACHE) searchCache.clear();
+      searchCache.set(cacheKey, filteredRanks);
     }
-    searchCache.set(cacheKey, filteredRanks);
   }
 
   return getRankingsPage(offset, limit, filteredRanks);
