@@ -813,18 +813,22 @@ fn run_accuracy(args: &[String]) {
     let trials: u64 = parse_flag(args, "--trials")
         .and_then(|s| s.parse().ok()).unwrap_or(2_000_000);
 
-    let test_hands_str = vec![
-        "AcAdAhKsQs",
-        "AcAdKcKdQh",
-        "AcAdKhQhJh",
-        "KcKdKhQsJs",
-        "JcTc9c8c7c",
-        "AcKcQcJcTd",
-        "2c3c4d5d7h",
-        "AcAd2s3s4h",
-        "TcTd9h8h7s",
-        "6c6d5h4h3s",
-    ];
+    let test_hands_str: Vec<String> = if let Some(hands_arg) = parse_flag(args, "--test-hands") {
+        hands_arg.split(',').map(|s| s.trim().to_string()).collect()
+    } else {
+        vec![
+            "AcAdAhKsQs".into(),
+            "AcAdKcKdQh".into(),
+            "AcAdKhQhJh".into(),
+            "KcKdKhQsJs".into(),
+            "JcTc9c8c7c".into(),
+            "AcKcQcJcTd".into(),
+            "2c3c4d5d7h".into(),
+            "AcAd2s3s4h".into(),
+            "TcTd9h8h7s".into(),
+            "6c6d5h4h3s".into(),
+        ]
+    };
 
     eprintln!("╔══════════════════════════════════════════════╗");
     eprintln!("║       PLO5 Accuracy Benchmark                ║");
@@ -860,9 +864,9 @@ fn run_accuracy(args: &[String]) {
 
     let mut test_hands: Vec<([u8; 5], String)> = Vec::new();
     for s in &test_hands_str {
-        if let Some(h) = parse_hand(s) {
+        if let Some(h) = parse_hand(s.as_str()) {
             let can = canonicalize(&h);
-            test_hands.push((can, s.to_string()));
+            test_hands.push((can, s.clone()));
         } else {
             eprintln!("  WARNING: Could not parse hand '{}'", s);
         }
