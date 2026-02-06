@@ -36,6 +36,16 @@ const RANK_VALUES: Record<Rank, number> = {
   'T': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14
 };
 
+const SUIT_ORDER: Record<Suit, number> = { 's': 0, 'h': 1, 'd': 2, 'c': 3 };
+
+export function sortCardsDescending(cards: Card[]): Card[] {
+  return [...cards].sort((a, b) => {
+    const rv = RANK_VALUES[b.rank] - RANK_VALUES[a.rank];
+    if (rv !== 0) return rv;
+    return SUIT_ORDER[a.suit] - SUIT_ORDER[b.suit];
+  });
+}
+
 const CATEGORY_RANKS: Record<HandCategory, number> = {
   'Royal Flush': 10,
   'Straight Flush': 9,

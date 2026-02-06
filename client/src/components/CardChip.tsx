@@ -1,4 +1,4 @@
-import { type Card, getRankDisplay } from '@/lib/poker-evaluator';
+import { type Card, getRankDisplay, sortCardsDescending } from '@/lib/poker-evaluator';
 import { cn } from '@/lib/utils';
 
 interface CardChipProps {
@@ -49,9 +49,10 @@ interface CardChipsProps {
 }
 
 export function CardChips({ cards, size = 'md', className }: CardChipsProps) {
+  const sorted = sortCardsDescending(cards);
   return (
     <div className={cn('flex gap-0.5 flex-wrap', className)}>
-      {cards.map((card, i) => (
+      {sorted.map((card, i) => (
         <CardChip key={`${card.rank}${card.suit}-${i}`} card={card} size={size} />
       ))}
     </div>
