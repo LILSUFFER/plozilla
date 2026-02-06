@@ -16,6 +16,7 @@ import { PlayingCard } from './PlayingCard';
 import { CardChips } from './CardChip';
 import { Play, Trash2, Plus, RotateCcw, Calculator, ClipboardPaste } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useTranslation } from '@/lib/i18n';
 
 interface PlayerRowProps {
   player: PlayerInput;
@@ -25,9 +26,12 @@ interface PlayerRowProps {
   isWinner?: boolean;
   disabled?: boolean;
   allUsedCards: Set<string>;
+  heroLabel: string;
+  playerLabel: string;
+  combosLabel: string;
 }
 
-function PlayerRow({ player, onInputChange, onRemove, equity, isWinner, disabled, allUsedCards }: PlayerRowProps) {
+function PlayerRow({ player, onInputChange, onRemove, equity, isWinner, disabled, allUsedCards, heroLabel, playerLabel, combosLabel }: PlayerRowProps) {
   const handleChange = (value: string) => {
     onInputChange(player.id, value);
   };
@@ -49,7 +53,7 @@ function PlayerRow({ player, onInputChange, onRemove, equity, isWinner, disabled
       hasError && 'border-destructive'
     )}>
       <div className="w-16 text-sm font-medium text-muted-foreground">
-        {player.id === 1 ? 'Hero' : `Player ${player.id}`}
+        {player.id === 1 ? heroLabel : `${playerLabel} ${player.id}`}
       </div>
       
       <div className="flex-1">
@@ -69,7 +73,7 @@ function PlayerRow({ player, onInputChange, onRemove, equity, isWinner, disabled
       <div className="flex gap-0.5 min-w-[140px] items-center">
         {player.isRange ? (
           <Badge variant="secondary" className="text-xs" data-testid={`badge-combo-${player.id}`}>
-            {player.comboCount} combos
+            {player.comboCount} {combosLabel}
           </Badge>
         ) : (
           <>
@@ -112,6 +116,7 @@ function PlayerRow({ player, onInputChange, onRemove, equity, isWinner, disabled
 }
 
 export function EquityCalculator() {
+  const { t } = useTranslation();
   const [board, setBoard] = useState<Card[]>([]);
   const [boardInput, setBoardInput] = useState('');
   const [players, setPlayers] = useState<PlayerInput[]>([
@@ -193,7 +198,7 @@ export function EquityCalculator() {
   };
   
   const removePlayer = (id: number) => {
-    if (id === 1) return; // Cannot remove Hero
+    if (id === 1) return;
     if (players.length <= 2) return;
     setPlayers(prev => prev.filter(p => p.id !== id));
   };
@@ -216,14 +221,14 @@ export function EquityCalculator() {
       const parsed = parseHandHistory(text);
       
       if (!parsed) {
-        setPasteError('Не удалось распознать формат истории раздачи');
+        setPasteError(t('pasteError1'));
         setParsedHistory(null);
         setPasteDialogOpen(true);
         return;
       }
       
       if (parsed.availableStreets.length === 0) {
-        setPasteError('Не найдены руки игроков в истории');
+        setPasteError(t('pasteError2'));
         setParsedHistory(null);
         setPasteDialogOpen(true);
         return;
@@ -233,7 +238,7 @@ export function EquityCalculator() {
       setParsedHistory(parsed);
       setPasteDialogOpen(true);
     } catch (err) {
-      setPasteError('Не удалось прочитать буфер обмена. Разрешите доступ к буферу.');
+      setPasteError(t('pasteError3'));
       setParsedHistory(null);
       setPasteDialogOpen(true);
     }
@@ -252,7 +257,6 @@ export function EquityCalculator() {
     
     const newPlayers: PlayerInput[] = [];
     
-    // Hero always goes first (id=1)
     if (parsedHistory.heroHand && parsedHistory.heroHand.length === 5) {
       newPlayers.push({
         id: 1,
@@ -262,7 +266,6 @@ export function EquityCalculator() {
       });
     }
     
-    // Add other players (excluding hero duplicates)
     const otherPlayers = parsedHistory.players
       .filter(p => p.hand && p.hand.length === 5 && !p.isHero)
       .slice(0, 6);
@@ -276,7 +279,6 @@ export function EquityCalculator() {
       });
     }
     
-    // Ensure at least 2 players (add empty slots if needed)
     while (newPlayers.length < 2) {
       newPlayers.push({ id: newPlayers.length + 1, cards: [], input: '' });
     }
@@ -301,7 +303,7 @@ export function EquityCalculator() {
     if (hasRanges) {
       const runRangeCalculation = async () => {
         const TARGET_SAMPLES = 600000;
-        const MAX_ATTEMPTS = 2000000; // Max attempts to reach target
+        const MAX_ATTEMPTS = 2000000;
         const BATCH_SIZE = 2000;
         const equityTotals: Record<number, number> = {};
         let totalSamples = 0;
@@ -339,14 +341,11 @@ export function EquityCalculator() {
           for (let i = 0; i < batchAttempts && totalSamples < TARGET_SAMPLES; i++) {
             attempts++;
             
-            // INDEPENDENT SAMPLING: sample each player from full deck (minus board)
-            // Then reject if hands conflict. This gives uniform distribution over valid pairs.
             const sampledHands: Card[][] = [];
             let validSample = true;
             
             for (const p of validPlayers) {
               if (p.isRange && p.rangePattern) {
-                // Generate random hand matching pattern (from full deck minus board only)
                 const hand = generateRandomHandFromPattern(p.rangePattern, usedByBoard);
                 if (!hand) {
                   validSample = false;
@@ -361,13 +360,11 @@ export function EquityCalculator() {
                 }
                 sampledHands.push(hand);
               } else {
-                // Specific hand
                 if (p.cards.some(c => usedByBoard.has(`${c.rank}${c.suit}`))) {
                   validSample = false;
                   break;
                 }
                 const hand = [...p.cards];
-                // Fill incomplete hands from remaining deck
                 const used = new Set(usedByBoard);
                 for (const c of hand) used.add(`${c.rank}${c.suit}`);
                 while (hand.length < 5) {
@@ -390,7 +387,6 @@ export function EquityCalculator() {
             
             if (!validSample || sampledHands.length !== validPlayers.length) continue;
             
-            // Check for conflicts between hands
             const allHandCards = new Set<string>();
             let hasConflict = false;
             for (const hand of sampledHands) {
@@ -407,7 +403,6 @@ export function EquityCalculator() {
             
             if (hasConflict) continue;
             
-            // Generate random board from remaining cards
             const randomBoard = [...board];
             const usedForBoard = new Set(allHandCards);
             for (const c of board) usedForBoard.add(`${c.rank}${c.suit}`);
@@ -432,7 +427,6 @@ export function EquityCalculator() {
             totalSamples++;
           }
           
-          // Update progress after each batch
           const progressPercent = Math.min((totalSamples / TARGET_SAMPLES) * 100, 100);
           setProgress(progressPercent);
           
@@ -450,7 +444,6 @@ export function EquityCalculator() {
             });
           }
           
-          // Yield to UI
           await new Promise(resolve => setTimeout(resolve, 0));
         }
         
@@ -534,7 +527,6 @@ export function EquityCalculator() {
   const validPlayerCount = players.filter(p => 
     (p.cards.length >= 2) || (p.isRange && (p.comboCount || 0) > 0)
   ).length;
-  // Board must be 0 (preflop), 3 (flop), 4 (turn), or 5 (river) cards
   const isValidBoardSize = board.length === 0 || board.length === 3 || board.length === 4 || board.length === 5;
   const canCalculate = validPlayerCount >= 2 && !isCalculating && isValidBoardSize;
   
@@ -545,18 +537,18 @@ export function EquityCalculator() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Calculator className="w-5 h-5" />
-          PLO5 Equity Calculator
+          {t('subtitle')}
         </CardTitle>
         <CardDescription>
-          Enter hands (7s6hJdQc8c) or ranges (AA, KK+, AK$s). Ranges use Monte Carlo sampling.
+          {t('calcDesc')}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <Label>Board</Label>
+            <Label>{t('board')}</Label>
             <span className="text-xs text-muted-foreground">
-              (Preflop: 0 | Flop: 3 | Turn: 4 | River: 5)
+              ({t('preflop')}: 0 | {t('flop')}: 3 | {t('turn')}: 4 | {t('river')}: 5)
             </span>
           </div>
           <div className="flex gap-2 items-center">
@@ -580,7 +572,7 @@ export function EquityCalculator() {
             </div>
             {!isValidBoardSize && board.length > 0 && (
               <span className="text-xs text-destructive">
-                Invalid: need {board.length === 1 ? '2 more' : '1 more'} card{board.length === 1 ? 's' : ''}
+                {t('invalidBoard')}
               </span>
             )}
           </div>
@@ -588,7 +580,7 @@ export function EquityCalculator() {
         
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <Label>Players (5 cards each, min 2 required)</Label>
+            <Label>{t('playersLabel')}</Label>
             <Button
               variant="outline"
               size="sm"
@@ -597,7 +589,7 @@ export function EquityCalculator() {
               data-testid="button-add-player"
             >
               <Plus className="w-4 h-4 mr-1" />
-              Add Player
+              {t('addPlayer')}
             </Button>
           </div>
           
@@ -614,6 +606,9 @@ export function EquityCalculator() {
                   isWinner={playerResult && playerResult.equity === maxEquity && maxEquity > 0}
                   disabled={isCalculating}
                   allUsedCards={allUsedCards}
+                  heroLabel={t('hero')}
+                  playerLabel={t('player')}
+                  combosLabel={t('combos')}
                 />
               );
             })}
@@ -628,7 +623,7 @@ export function EquityCalculator() {
             data-testid="button-calculate"
           >
             <Play className="w-4 h-4" />
-            Calculate Equity
+            {isCalculating ? t('calculating') : t('calculate')}
           </Button>
           <Button
             variant="outline"
@@ -637,7 +632,7 @@ export function EquityCalculator() {
             data-testid="button-paste-hand"
           >
             <ClipboardPaste className="w-4 h-4 mr-1" />
-            Paste Hand
+            {t('pasteHand')}
           </Button>
           <Button
             variant="outline"
@@ -646,7 +641,7 @@ export function EquityCalculator() {
             data-testid="button-clear"
           >
             <RotateCcw className="w-4 h-4 mr-1" />
-            Clear
+            {t('reset')}
           </Button>
         </div>
         
@@ -660,11 +655,11 @@ export function EquityCalculator() {
         {result && !isCalculating && (
           <div className="space-y-4 pt-4 border-t">
             <div className="flex items-center justify-between gap-2 flex-wrap">
-              <h3 className="font-semibold">Equity Results</h3>
+              <h3 className="font-semibold">{t('equityResults')}</h3>
               <div className="flex items-center gap-2">
                 {isCached && (
                   <Badge variant="default" className="bg-green-600" data-testid="badge-cached">
-                    Cached
+                    {t('cached')}
                   </Badge>
                 )}
                 {calcTime !== null && (
@@ -673,7 +668,7 @@ export function EquityCalculator() {
                   </Badge>
                 )}
                 <Badge variant="secondary" data-testid="badge-trials">
-                  {result.totalTrials.toLocaleString()} {result.isExhaustive ? 'runouts (exact)' : 'trials'}
+                  {result.totalTrials.toLocaleString()} {result.isExhaustive ? `${t('runouts')} (${t('exact')})` : t('trials')}
                 </Badge>
               </div>
             </div>
@@ -687,7 +682,7 @@ export function EquityCalculator() {
                   <div key={r.playerId} className="space-y-1">
                     <div className="flex items-center justify-between text-sm">
                       <span className={cn(isWinner && 'font-bold text-green-500')}>
-                        {r.playerId === 1 ? 'Hero' : `Player ${r.playerId}`}: {player?.input || 'N/A'}
+                        {r.playerId === 1 ? t('hero') : `${t('player')} ${r.playerId}`}: {player?.input || '—'}
                       </span>
                       <span className={cn('font-mono font-bold', isWinner && 'text-green-500')}>
                         {r.equity.toFixed(4)}%
@@ -706,11 +701,11 @@ export function EquityCalculator() {
                       </span>
                     </div>
                     <div className="text-xs text-muted-foreground">
-                      Wins: {r.wins.toLocaleString()} | Ties: {r.ties.toLocaleString()} | Total: {r.total.toLocaleString()}
+                      {t('win')}: {r.wins.toLocaleString()} | {t('tie')}: {r.ties.toLocaleString()} | {t('total')}: {r.total.toLocaleString()}
                     </div>
                     {r.bestHand && (
                       <div className="text-xs text-muted-foreground">
-                        Best hand: {r.bestHand.description}
+                        {t('bestHand')}: {r.bestHand.description}
                       </div>
                     )}
                   </div>
@@ -723,18 +718,18 @@ export function EquityCalculator() {
         <Dialog open={pasteDialogOpen} onOpenChange={setPasteDialogOpen}>
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle>Импорт раздачи</DialogTitle>
+              <DialogTitle>{t('handImport')}</DialogTitle>
               <DialogDescription>
                 {pasteError 
                   ? pasteError 
-                  : 'Выберите улицу для анализа'}
+                  : t('selectStreet')}
               </DialogDescription>
             </DialogHeader>
             
             {parsedHistory && !pasteError && (
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">Найденные руки:</Label>
+                  <Label className="text-sm font-medium">{t('foundHands')}</Label>
                   <div className="space-y-2">
                     {parsedHistory.players.map((p, i) => (
                       <div key={i} className="flex items-center gap-2">
@@ -752,7 +747,7 @@ export function EquityCalculator() {
                 
                 {parsedHistory.board.flop && (
                   <div className="space-y-1">
-                    <Label className="text-sm font-medium">Борд:</Label>
+                    <Label className="text-sm font-medium">{t('boardLabel')}</Label>
                     <CardChips 
                       cards={[
                         ...parsedHistory.board.flop,
@@ -765,7 +760,7 @@ export function EquityCalculator() {
                 )}
                 
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">Выберите улицу:</Label>
+                  <Label className="text-sm font-medium">{t('selectStreetLabel')}</Label>
                   <div className="grid grid-cols-2 gap-2">
                     {parsedHistory.availableStreets.map(street => (
                       <Button
@@ -775,10 +770,10 @@ export function EquityCalculator() {
                         className="w-full"
                         data-testid={`button-street-${street}`}
                       >
-                        {getStreetName(street)}
+                        {street === 'preflop' ? t('preflop') : street === 'flop' ? t('flop') : street === 'turn' ? t('turn') : t('river')}
                         {street !== 'preflop' && (
                           <span className="ml-1 text-xs text-muted-foreground">
-                            ({street === 'flop' ? '3' : street === 'turn' ? '4' : '5'} карт)
+                            ({street === 'flop' ? '3' : street === 'turn' ? '4' : '5'} {t('cards')})
                           </span>
                         )}
                       </Button>
@@ -795,7 +790,7 @@ export function EquityCalculator() {
                 className="w-full"
                 data-testid="button-paste-dialog-close"
               >
-                Закрыть
+                {t('close')}
               </Button>
             )}
           </DialogContent>

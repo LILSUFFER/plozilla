@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { LanguageToggle } from '@/components/LanguageToggle';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
@@ -8,18 +9,20 @@ import { TrendingUp, DollarSign, BookOpen, LogOut, Loader2 } from 'lucide-react'
 import { SiTelegram } from 'react-icons/si';
 import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
+import { useTranslation } from '@/lib/i18n';
 import { Link, useLocation } from 'wouter';
 
 export default function LearnPage() {
   const { user, isLoading, isAuthenticated, logout } = useAuth();
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [location] = useLocation();
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
       toast({
-        title: "Please log in",
-        description: "Redirecting to login...",
+        title: t('pleaseLogIn'),
+        description: t('redirecting'),
         variant: "destructive",
       });
       setTimeout(() => {
@@ -45,9 +48,22 @@ export default function LearnPage() {
     : user?.email?.[0]?.toUpperCase() || 'U';
 
   const navItems = [
-    { path: '/app', label: 'Equity', icon: TrendingUp },
-    { path: '/app/table-ev', label: 'Table EV', icon: DollarSign },
-    { path: '/app/learn', label: 'Learn', icon: BookOpen },
+    { path: '/app', label: t('navEquity'), icon: TrendingUp },
+    { path: '/app/table-ev', label: t('navTableEv'), icon: DollarSign },
+    { path: '/app/learn', label: t('navLearn'), icon: BookOpen },
+  ];
+
+  const handRankings = [
+    { name: t('royalFlush'), count: 4, desc: t('royalFlushDesc'), example: 'AhKhQhJhTh' },
+    { name: t('straightFlush'), count: 36, desc: t('straightFlushDesc'), example: '9h8h7h6h5h' },
+    { name: t('fourOfKind'), count: 624, desc: t('fourOfKindDesc'), example: 'AhAcAdAsKh' },
+    { name: t('fullHouse'), count: 3744, desc: t('fullHouseDesc'), example: 'AhAcAdKhKs' },
+    { name: t('flush'), count: 5108, desc: t('flushDesc'), example: 'AhJh8h5h2h' },
+    { name: t('straight'), count: 10200, desc: t('straightDesc'), example: 'AhKdQcJsTh' },
+    { name: t('threeOfKind'), count: 54912, desc: t('threeOfKindDesc'), example: 'AhAcAdKhQs' },
+    { name: t('twoPair'), count: 123552, desc: t('twoPairDesc'), example: 'AhAcKhKsQd' },
+    { name: t('onePair'), count: 1098240, desc: t('onePairDesc'), example: 'AhAcKhQsJd' },
+    { name: t('highCard'), count: 1302540, desc: t('highCardDesc'), example: 'AhKdQcJs9h' },
   ];
 
   return (
@@ -70,7 +86,7 @@ export default function LearnPage() {
                   variant={location === item.path ? 'default' : 'ghost'}
                   size="sm"
                   className="flex items-center gap-2"
-                  data-testid={`nav-${item.label.toLowerCase().replace(' ', '-')}`}
+                  data-testid={`nav-${item.path.split('/').pop()}`}
                 >
                   <item.icon className="w-4 h-4" />
                   <span>{item.label}</span>
@@ -85,9 +101,10 @@ export default function LearnPage() {
                 <SiTelegram className="w-4 h-4" />
               </a>
             </Button>
+            <LanguageToggle />
             <ThemeToggle />
             <Avatar className="w-8 h-8">
-              <AvatarImage src={user?.profileImageUrl || undefined} alt={user?.firstName || 'User'} />
+              <AvatarImage src={user?.profileImageUrl || undefined} alt={user?.firstName || t('user')} />
               <AvatarFallback>{userInitials}</AvatarFallback>
             </Avatar>
             <Button variant="ghost" size="icon" onClick={() => logout()} data-testid="button-logout">
@@ -102,53 +119,29 @@ export default function LearnPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <BookOpen className="w-5 h-5" />
-              Poker Hand Rankings & Omaha Rules
+              {t('learnTitle')}
             </CardTitle>
-            <CardDescription>
-              Understanding poker mathematics and 5-card Omaha
-            </CardDescription>
+            <CardDescription>{t('learnDesc')}</CardDescription>
           </CardHeader>
           <CardContent>
             <Accordion type="single" collapsible className="w-full">
               <AccordionItem value="omaha">
-                <AccordionTrigger>5-Card Omaha Rules</AccordionTrigger>
+                <AccordionTrigger>{t('omahaRules')}</AccordionTrigger>
                 <AccordionContent className="space-y-4">
-                  <p>
-                    In 5-card Omaha, each player receives <strong>5 hole cards</strong> and must use 
-                    <strong> exactly 2</strong> of them combined with <strong>exactly 3</strong> of the 
-                    5 community board cards to make the best 5-card poker hand.
-                  </p>
-                  <p>
-                    This is different from Texas Hold'em where you can use any combination of your 
-                    hole cards and board cards.
-                  </p>
+                  <p dangerouslySetInnerHTML={{ __html: t('omahaRulesP1') }} />
+                  <p>{t('omahaRulesP2')}</p>
                   <div className="bg-muted/50 p-3 rounded-md">
-                    <p className="font-semibold mb-2">Example:</p>
-                    <p className="text-sm">
-                      If you have <code className="bg-background px-1 rounded">AhKhQhJhTh</code> (all hearts), 
-                      you cannot make a flush unless 3 hearts appear on the board, because you must use 
-                      exactly 2 hole cards and 3 board cards.
-                    </p>
+                    <p className="font-semibold mb-2">{t('omahaExample')}</p>
+                    <p className="text-sm" dangerouslySetInnerHTML={{ __html: t('omahaExampleText') }} />
                   </div>
                 </AccordionContent>
               </AccordionItem>
               
               <AccordionItem value="rankings">
-                <AccordionTrigger>Hand Rankings (Best to Worst)</AccordionTrigger>
+                <AccordionTrigger>{t('handRankings')}</AccordionTrigger>
                 <AccordionContent>
                   <div className="space-y-3">
-                    {[
-                      { name: 'Royal Flush', count: 4, desc: 'A, K, Q, J, 10 all of the same suit', example: 'AhKhQhJhTh' },
-                      { name: 'Straight Flush', count: 36, desc: 'Five cards in sequence, all of the same suit', example: '9h8h7h6h5h' },
-                      { name: 'Four of a Kind', count: 624, desc: 'Four cards of the same rank', example: 'AhAcAdAsKh' },
-                      { name: 'Full House', count: 3744, desc: 'Three of a kind plus a pair', example: 'AhAcAdKhKs' },
-                      { name: 'Flush', count: 5108, desc: 'Five cards of the same suit (not in sequence)', example: 'AhJh8h5h2h' },
-                      { name: 'Straight', count: 10200, desc: 'Five cards in sequence (not same suit)', example: 'AhKdQcJsTh' },
-                      { name: 'Three of a Kind', count: 54912, desc: 'Three cards of the same rank', example: 'AhAcAdKhQs' },
-                      { name: 'Two Pair', count: 123552, desc: 'Two different pairs', example: 'AhAcKhKsQd' },
-                      { name: 'One Pair', count: 1098240, desc: 'Two cards of the same rank', example: 'AhAcKhQsJd' },
-                      { name: 'High Card', count: 1302540, desc: 'No matching cards', example: 'AhKdQcJs9h' },
-                    ].map((hand, i) => (
+                    {handRankings.map((hand, i) => (
                       <div key={hand.name} className="flex flex-col sm:flex-row sm:items-center gap-2 p-3 rounded-md bg-muted/50">
                         <div className="flex items-center gap-2">
                           <span className="w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold flex items-center justify-center">
@@ -165,61 +158,53 @@ export default function LearnPage() {
               </AccordionItem>
               
               <AccordionItem value="equity">
-                <AccordionTrigger>Understanding Equity</AccordionTrigger>
+                <AccordionTrigger>{t('understandingEquity')}</AccordionTrigger>
                 <AccordionContent className="space-y-4">
-                  <p>
-                    <strong>Equity</strong> represents your expected share of the pot based on 
-                    your probability of winning. It's calculated by simulating all possible 
-                    remaining board cards and determining how often each player wins.
-                  </p>
-                  <p>
-                    For example, if you have 60% equity, you expect to win 60% of the pot on average.
-                  </p>
+                  <p dangerouslySetInnerHTML={{ __html: t('equityP1') }} />
+                  <p>{t('equityP2')}</p>
                   <div className="bg-muted/50 p-3 rounded-md">
-                    <p className="font-semibold mb-2">Calculation Method:</p>
+                    <p className="font-semibold mb-2">{t('calcMethod')}</p>
                     <ul className="text-sm space-y-1 list-disc list-inside">
-                      <li>Enumerate all possible remaining board cards</li>
-                      <li>For each complete board, evaluate each player's best hand</li>
-                      <li>Count wins, ties, and losses for each player</li>
-                      <li>Equity = (Wins + Ties/2) / Total Trials × 100%</li>
+                      <li>{t('calcStep1')}</li>
+                      <li>{t('calcStep2')}</li>
+                      <li>{t('calcStep3')}</li>
+                      <li>{t('calcStep4')}</li>
                     </ul>
                   </div>
                 </AccordionContent>
               </AccordionItem>
               
               <AccordionItem value="notation">
-                <AccordionTrigger>Card Notation</AccordionTrigger>
+                <AccordionTrigger>{t('cardNotation')}</AccordionTrigger>
                 <AccordionContent className="space-y-4">
-                  <p>
-                    This tool uses standard poker notation in concatenated format:
-                  </p>
+                  <p>{t('cardNotationDesc')}</p>
                   <div className="grid grid-cols-2 gap-4 mt-2">
                     <div>
-                      <p className="font-semibold mb-2">Ranks:</p>
+                      <p className="font-semibold mb-2">{t('ranks')}</p>
                       <ul className="text-sm space-y-1">
-                        <li><code>A</code> - Ace (highest)</li>
-                        <li><code>K</code> - King</li>
-                        <li><code>Q</code> - Queen</li>
-                        <li><code>J</code> - Jack</li>
-                        <li><code>T</code> - Ten</li>
-                        <li><code>9-2</code> - Number cards</li>
+                        <li><code>A</code> - {t('ace')}</li>
+                        <li><code>K</code> - {t('king')}</li>
+                        <li><code>Q</code> - {t('queen')}</li>
+                        <li><code>J</code> - {t('jack')}</li>
+                        <li><code>T</code> - {t('ten')}</li>
+                        <li><code>9-2</code> - {t('numberCards')}</li>
                       </ul>
                     </div>
                     <div>
-                      <p className="font-semibold mb-2">Suits:</p>
+                      <p className="font-semibold mb-2">{t('suits')}</p>
                       <ul className="text-sm space-y-1">
-                        <li><code>s</code> - Spades</li>
-                        <li><code>h</code> - Hearts</li>
-                        <li><code>d</code> - Diamonds</li>
-                        <li><code>c</code> - Clubs</li>
+                        <li><code>s</code> - {t('spades')}</li>
+                        <li><code>h</code> - {t('hearts')}</li>
+                        <li><code>d</code> - {t('diamonds')}</li>
+                        <li><code>c</code> - {t('clubs')}</li>
                       </ul>
                     </div>
                   </div>
                   <div className="bg-muted/50 p-3 rounded-md mt-4">
-                    <p className="font-semibold mb-2">Examples:</p>
+                    <p className="font-semibold mb-2">{t('examples')}</p>
                     <ul className="text-sm space-y-1">
-                      <li><code>6sKh7hKdAc</code> = 6 spades, K hearts, 7 hearts, K diamonds, A clubs</li>
-                      <li><code>Th5d7c</code> = 10 hearts, 5 diamonds, 7 clubs (board)</li>
+                      <li><code>6sKh7hKdAc</code> = {t('cardExample1')}</li>
+                      <li><code>Th5d7c</code> = {t('cardExample2')}</li>
                     </ul>
                   </div>
                 </AccordionContent>

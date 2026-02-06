@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { LanguageToggle } from '@/components/LanguageToggle';
 import { TableEvAnalyzer } from '@/components/TableEvAnalyzer';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -7,18 +8,20 @@ import { TrendingUp, DollarSign, BookOpen, LogOut, Loader2 } from 'lucide-react'
 import { SiTelegram } from 'react-icons/si';
 import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
+import { useTranslation } from '@/lib/i18n';
 import { Link, useLocation } from 'wouter';
 
 export default function TableEvPage() {
   const { user, isLoading, isAuthenticated, logout } = useAuth();
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [location] = useLocation();
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
       toast({
-        title: "Please log in",
-        description: "Redirecting to login...",
+        title: t('pleaseLogIn'),
+        description: t('redirecting'),
         variant: "destructive",
       });
       setTimeout(() => {
@@ -44,9 +47,9 @@ export default function TableEvPage() {
     : user?.email?.[0]?.toUpperCase() || 'U';
 
   const navItems = [
-    { path: '/app', label: 'Equity', icon: TrendingUp },
-    { path: '/app/table-ev', label: 'Table EV', icon: DollarSign },
-    { path: '/app/learn', label: 'Learn', icon: BookOpen },
+    { path: '/app', label: t('navEquity'), icon: TrendingUp },
+    { path: '/app/table-ev', label: t('navTableEv'), icon: DollarSign },
+    { path: '/app/learn', label: t('navLearn'), icon: BookOpen },
   ];
 
   return (
@@ -69,7 +72,7 @@ export default function TableEvPage() {
                   variant={location === item.path ? 'default' : 'ghost'}
                   size="sm"
                   className="flex items-center gap-2"
-                  data-testid={`nav-${item.label.toLowerCase().replace(' ', '-')}`}
+                  data-testid={`nav-${item.path.split('/').pop()}`}
                 >
                   <item.icon className="w-4 h-4" />
                   <span>{item.label}</span>
@@ -84,9 +87,10 @@ export default function TableEvPage() {
                 <SiTelegram className="w-4 h-4" />
               </a>
             </Button>
+            <LanguageToggle />
             <ThemeToggle />
             <Avatar className="w-8 h-8">
-              <AvatarImage src={user?.profileImageUrl || undefined} alt={user?.firstName || 'User'} />
+              <AvatarImage src={user?.profileImageUrl || undefined} alt={user?.firstName || t('user')} />
               <AvatarFallback>{userInitials}</AvatarFallback>
             </Avatar>
             <Button variant="ghost" size="icon" onClick={() => logout()} data-testid="button-logout">

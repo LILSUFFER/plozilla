@@ -5,6 +5,14 @@
 A browser-based 5-Card Omaha equity calculator similar to ProPokerTools Oracle. The calculator supports board input in valid poker states (Preflop: 0, Flop: 3, Turn: 4, River: 5 cards), multiple player hands (5 cards each), concatenated card notation (e.g., "7s6hJdQc8c"), and performs exhaustive equity calculations with accurate Omaha hand evaluation (exactly 2 hole cards + 3 board cards). Built as a client-side React TypeScript application.
 
 ## Recent Changes (Feb 2026)
+- **EN/RU Bilingual Support**: Full internationalization with language switching
+  - React Context-based i18n system (`client/src/lib/i18n.tsx`)
+  - `useTranslation` hook for all components, `I18nProvider` wraps entire app
+  - LanguageToggle component in all page headers (shows "RU" when English, "EN" when Russian)
+  - localStorage persistence of language preference (`plozilla-lang`)
+  - All pages fully translated: Landing, AppPage, TableEvPage, LearnPage
+  - All components translated: EquityCalculator, TableEvAnalyzer (including info dialog)
+  - Translation keys use template `{n}` placeholders replaced with `.replace('{n}', value)`
 - **SaaS Architecture**: Restructured as authenticated web application
   - Landing page at / (public) with GTOWizard-style design
   - Equity calculator at /app (requires authentication)

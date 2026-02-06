@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { RotateCcw, Settings, Info } from 'lucide-react';
+import { useTranslation } from '@/lib/i18n';
 
 type PlayerType = 'Hero' | 'Reg' | 'Fish' | 'Empty';
 
@@ -158,6 +159,7 @@ interface CalculationItem {
 }
 
 export function TableEvAnalyzer() {
+  const { t } = useTranslation();
   const [tableSize, setTableSize] = useState<TableSize>(6);
   const [seats, setSeats] = useState<SeatConfig[]>(createInitialSeats(6));
   const [selectedSeatIndex, setSelectedSeatIndex] = useState<number | null>(null);
@@ -211,10 +213,7 @@ export function TableEvAnalyzer() {
       }
     });
 
-    // Calculate effective hero rake after rakeback
     const effectiveHeroRake = heroRake * (1 - rakeback / 100);
-    
-    // Hero rake is subtracted only ONCE (not per fish)
     const totalEv = fishEvSum - effectiveHeroRake;
 
     return { totalEv, breakdowns, nReg, debug, heroRake, effectiveHeroRake, rakeback };
@@ -277,11 +276,11 @@ export function TableEvAnalyzer() {
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
             <CardTitle className="text-xs uppercase tracking-widest text-muted-foreground">
-              Total Expected Value
+              {t('totalEv')}
             </CardTitle>
             <Button variant="ghost" size="sm" onClick={resetTable} className="h-7 px-2">
               <RotateCcw className="w-3 h-3 mr-1" />
-              Reset
+              {t('reset')}
             </Button>
           </div>
         </CardHeader>
@@ -298,11 +297,11 @@ export function TableEvAnalyzer() {
           
           <div className="space-y-3 mb-6">
             <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Regs + Hero (N-reg)</span>
+              <span className="text-muted-foreground">{t('regsHero')}</span>
               <span className="font-mono font-semibold">{calculation.nReg}</span>
             </div>
             <div className="flex justify-between text-sm items-center">
-              <span className="text-muted-foreground">Hero Rake (bb/100)</span>
+              <span className="text-muted-foreground">{t('heroRake')}</span>
               <Input 
                 type="text"
                 inputMode="numeric"
@@ -317,7 +316,7 @@ export function TableEvAnalyzer() {
               />
             </div>
             <div className="flex justify-between text-sm items-center">
-              <span className="text-muted-foreground">Rakeback (%)</span>
+              <span className="text-muted-foreground">{t('rakebackPct')}</span>
               <Input 
                 type="text"
                 inputMode="numeric"
@@ -336,29 +335,29 @@ export function TableEvAnalyzer() {
 
           {calculation.debug.length > 0 && (
             <div className="space-y-4 pt-4 border-t">
-              <div className="text-xs font-bold uppercase tracking-wider text-primary">Calculation Details</div>
+              <div className="text-xs font-bold uppercase tracking-wider text-primary">{t('calcDetails')}</div>
               {calculation.debug.map((item, i) => (
                 <div key={i} className="space-y-2 bg-muted/50 p-3 rounded-lg">
                   <div className="flex justify-between items-center mb-2">
-                    <span className="text-xs font-bold text-orange-500">Against Fish (Seat {item.fishIndex + 1})</span>
+                    <span className="text-xs font-bold text-orange-500">{t('againstFish').replace('{n}', String(item.fishIndex + 1))}</span>
                     <span className="text-[10px] bg-orange-500/20 text-orange-500 px-1.5 py-0.5 rounded">VPIP {item.vpip}%</span>
                   </div>
                   <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">Real Loserate:</span>
+                      <span className="text-muted-foreground">{t('realLoserate')}</span>
                       <span>{item.realLoserate}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">Share (N={calculation.nReg}):</span>
+                      <span className="text-muted-foreground">{t('shareN').replace('{n}', String(calculation.nReg))}</span>
                       <span>{(item.realLoserate / calculation.nReg).toFixed(1)}</span>
                     </div>
                     <div className="flex justify-between col-span-2">
-                      <span className="text-muted-foreground">Position Coef:</span>
+                      <span className="text-muted-foreground">{t('posCoef')}</span>
                       <span className="text-primary font-bold">{item.posCoef}x</span>
                     </div>
                   </div>
                   <div className="flex justify-between border-t pt-2 mt-2">
-                    <span className="text-[11px] text-muted-foreground font-semibold">Fish EV contribution:</span>
+                    <span className="text-[11px] text-muted-foreground font-semibold">{t('fishEvContrib')}</span>
                     <span className={cn("text-[11px] font-bold", item.ev > 0 ? "text-emerald-500" : "text-red-500")}>
                       {item.ev > 0 ? "+" : ""}{item.ev.toFixed(2)}
                     </span>
@@ -367,25 +366,25 @@ export function TableEvAnalyzer() {
               ))}
               <div className="bg-muted/30 p-3 rounded-lg space-y-2">
                 <div className="flex justify-between text-[11px]">
-                  <span className="text-muted-foreground">Sum of Fish EV:</span>
+                  <span className="text-muted-foreground">{t('sumFishEv')}</span>
                   <span className="font-mono">{calculation.debug.reduce((sum, d) => sum + d.ev, 0).toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between text-[11px]">
-                  <span className="text-muted-foreground">Hero Rake:</span>
+                  <span className="text-muted-foreground">{t('heroRakeLabel')}</span>
                   <span className="font-mono">{heroRake}</span>
                 </div>
                 {rakeback > 0 && (
                   <div className="flex justify-between text-[11px]">
-                    <span className="text-muted-foreground">Rakeback ({rakeback}%):</span>
+                    <span className="text-muted-foreground">{t('rakebackLabel').replace('{n}', String(rakeback))}</span>
                     <span className="text-emerald-500 font-mono">+{(heroRake * rakeback / 100).toFixed(2)}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-[11px]">
-                  <span className="text-muted-foreground">Effective Rake:</span>
+                  <span className="text-muted-foreground">{t('effectiveRake')}</span>
                   <span className="text-red-500 font-mono">-{calculation.effectiveHeroRake.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between border-t pt-2 mt-1">
-                  <span className="text-[11px] font-semibold">Final EV:</span>
+                  <span className="text-[11px] font-semibold">{t('finalEv')}</span>
                   <span className={cn("text-[11px] font-bold font-mono", calculation.totalEv > 0 ? "text-emerald-500" : "text-red-500")}>
                     {calculation.totalEv > 0 ? "+" : ""}{calculation.totalEv.toFixed(2)}
                   </span>
@@ -398,7 +397,7 @@ export function TableEvAnalyzer() {
 
       <Card className="flex-1 flex flex-col">
         <CardHeader className="pb-2">
-          <CardTitle className="text-center text-lg">Table</CardTitle>
+          <CardTitle className="text-center text-lg">{t('table')}</CardTitle>
         </CardHeader>
         <CardContent className="flex-1 flex flex-col items-center justify-center gap-6" style={{ paddingBottom: '15%' }}>
           <div className="relative w-full max-w-xl aspect-[16/10]">
@@ -436,7 +435,7 @@ export function TableEvAnalyzer() {
                     "bg-slate-800 border-slate-600 text-slate-600 hover:border-slate-500"
                   )}>
                     <span className="text-[11px] font-bold uppercase">
-                      {seat.type === 'Empty' ? 'EMPTY' : seat.type.toUpperCase()}
+                      {seat.type === 'Empty' ? t('empty') : seat.type.toUpperCase()}
                     </span>
                     {isFish && (
                       <span className="text-[9px] font-medium">
@@ -478,7 +477,7 @@ export function TableEvAnalyzer() {
             data-testid="link-how-it-works"
           >
             <Info className="w-3 h-3" />
-            How does it work?
+            {t('howItWorks')}
           </button>
         </div>
       </Card>
@@ -486,42 +485,42 @@ export function TableEvAnalyzer() {
       <Dialog open={showInfo} onOpenChange={setShowInfo}>
         <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>How Table EV Calculator Works</DialogTitle>
+            <DialogTitle>{t('infoTitle')}</DialogTitle>
           </DialogHeader>
           <div className="space-y-6 py-4 text-sm">
             <div className="space-y-2">
-              <h3 className="font-bold text-base text-primary">Core Formula</h3>
+              <h3 className="font-bold text-base text-primary">{t('infoCoreFormula')}</h3>
               <div className="bg-muted/50 p-4 rounded-lg font-mono text-xs leading-relaxed">
-                EV = Sum of Fish EV contributions - Effective Hero Rake
+                {t('infoCoreFormulaText')}
               </div>
             </div>
 
             <div className="space-y-2">
-              <h3 className="font-bold text-base text-primary">Step 1: Real Loserate</h3>
-              <p className="text-muted-foreground">Each fish has a total loserate and a rake component. The real loserate is the net amount other players win from this fish:</p>
+              <h3 className="font-bold text-base text-primary">{t('infoStep1')}</h3>
+              <p className="text-muted-foreground">{t('infoStep1Desc')}</p>
               <div className="bg-muted/50 p-3 rounded-lg font-mono text-xs">
-                Real Loserate = Fish Loserate - Fish Rake
+                {t('infoStep1Formula')}
               </div>
-              <p className="text-muted-foreground text-xs">Fish Rake goes to the poker room, not to other players.</p>
+              <p className="text-muted-foreground text-xs">{t('infoStep1Note')}</p>
             </div>
 
             <div className="space-y-2">
-              <h3 className="font-bold text-base text-primary">Step 2: Share per Reg</h3>
-              <p className="text-muted-foreground">The real loserate is split equally among all regs (including Hero) at the table:</p>
+              <h3 className="font-bold text-base text-primary">{t('infoStep2')}</h3>
+              <p className="text-muted-foreground">{t('infoStep2Desc')}</p>
               <div className="bg-muted/50 p-3 rounded-lg font-mono text-xs">
-                Share = Real Loserate / N_regs
+                {t('infoStep2Formula')}
               </div>
-              <p className="text-muted-foreground text-xs">N_regs = number of Reg + Hero players.</p>
+              <p className="text-muted-foreground text-xs">{t('infoStep2Note')}</p>
             </div>
 
             <div className="space-y-2">
-              <h3 className="font-bold text-base text-primary">Step 3: Position Coefficient</h3>
-              <p className="text-muted-foreground">Your position relative to the fish matters. Sitting closer (to the left) gives you a higher coefficient because you act after the fish more often:</p>
+              <h3 className="font-bold text-base text-primary">{t('infoStep3')}</h3>
+              <p className="text-muted-foreground">{t('infoStep3Desc')}</p>
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-muted/50 p-3 rounded-lg">
-                  <p className="text-xs font-semibold mb-2 text-orange-500">Normal Fish</p>
+                  <p className="text-xs font-semibold mb-2 text-orange-500">{t('normalFish')}</p>
                   <div className="space-y-1 font-mono text-xs">
-                    <div className="flex justify-between"><span>fish+1 (direct left):</span><span className="font-bold">1.50x</span></div>
+                    <div className="flex justify-between"><span>{t('directLeft')}</span><span className="font-bold">1.50x</span></div>
                     <div className="flex justify-between"><span>fish+2:</span><span className="font-bold">1.10x</span></div>
                     <div className="flex justify-between"><span>fish+3:</span><span className="font-bold">0.90x</span></div>
                     <div className="flex justify-between"><span>fish+4:</span><span className="font-bold">0.80x</span></div>
@@ -529,9 +528,9 @@ export function TableEvAnalyzer() {
                   </div>
                 </div>
                 <div className="bg-muted/50 p-3 rounded-lg">
-                  <p className="text-xs font-semibold mb-2 text-red-500">3bet 30%+ Fish</p>
+                  <p className="text-xs font-semibold mb-2 text-red-500">{t('threeBetFish')}</p>
                   <div className="space-y-1 font-mono text-xs">
-                    <div className="flex justify-between"><span>fish+1 (direct left):</span><span className="font-bold">1.35x</span></div>
+                    <div className="flex justify-between"><span>{t('directLeft')}</span><span className="font-bold">1.35x</span></div>
                     <div className="flex justify-between"><span>fish+2:</span><span className="font-bold">1.00x</span></div>
                     <div className="flex justify-between"><span>fish+3:</span><span className="font-bold">0.75x</span></div>
                     <div className="flex justify-between"><span>fish+4:</span><span className="font-bold">0.60x</span></div>
@@ -539,37 +538,37 @@ export function TableEvAnalyzer() {
                   </div>
                 </div>
               </div>
-              <p className="text-muted-foreground text-xs">3bet fish reduces positional advantage because aggressive 3-betting narrows the skill edge from position.</p>
+              <p className="text-muted-foreground text-xs">{t('infoStep3Note')}</p>
             </div>
 
             <div className="space-y-2">
-              <h3 className="font-bold text-base text-primary">Step 4: EV per Fish</h3>
-              <p className="text-muted-foreground">For each fish at the table, your EV contribution is:</p>
+              <h3 className="font-bold text-base text-primary">{t('infoStep4')}</h3>
+              <p className="text-muted-foreground">{t('infoStep4Desc')}</p>
               <div className="bg-muted/50 p-3 rounded-lg font-mono text-xs">
-                Fish EV = (Real Loserate / N_regs) * Position Coef
+                {t('infoStep4Formula')}
               </div>
             </div>
 
             <div className="space-y-2">
-              <h3 className="font-bold text-base text-primary">Step 5: Hero Rake & Rakeback</h3>
-              <p className="text-muted-foreground">Your own rake is subtracted once from the total. Rakeback reduces the effective rake:</p>
+              <h3 className="font-bold text-base text-primary">{t('infoStep5')}</h3>
+              <p className="text-muted-foreground">{t('infoStep5Desc')}</p>
               <div className="bg-muted/50 p-3 rounded-lg font-mono text-xs space-y-1">
-                <div>Effective Rake = Hero Rake * (1 - Rakeback% / 100)</div>
+                <div>{t('infoStep5Formula')}</div>
               </div>
             </div>
 
             <div className="space-y-2">
-              <h3 className="font-bold text-base text-primary">Final Result</h3>
+              <h3 className="font-bold text-base text-primary">{t('infoFinalResult')}</h3>
               <div className="bg-primary/10 border border-primary/20 p-4 rounded-lg font-mono text-xs">
-                <span className="text-primary font-bold">Total EV = Sum(Fish EV) - Effective Hero Rake</span>
+                <span className="text-primary font-bold">{t('infoFinalFormula')}</span>
               </div>
-              <p className="text-muted-foreground text-xs">Result is in bb/100 (big blinds per 100 hands).</p>
+              <p className="text-muted-foreground text-xs">{t('infoFinalNote')}</p>
             </div>
 
             <div className="space-y-2">
-              <h3 className="font-bold text-base text-primary">Example</h3>
+              <h3 className="font-bold text-base text-primary">{t('infoExample')}</h3>
               <div className="bg-muted/50 p-3 rounded-lg text-xs space-y-1">
-                <p>1 Fish (VPIP 90%, Loserate 200, Rake 41), 4 Regs + Hero, Hero at fish+1</p>
+                <p>{t('infoExampleSetup')}</p>
                 <p className="font-mono mt-2">Real Loserate = 200 - 41 = 159</p>
                 <p className="font-mono">Share = 159 / 5 = 31.8</p>
                 <p className="font-mono">Position Coef (fish+1) = 1.5x</p>
@@ -587,14 +586,14 @@ export function TableEvAnalyzer() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Settings className="w-5 h-5 text-primary" />
-              Configure Seat {(selectedSeatIndex ?? 0) + 1}
+              {t('configureSeat').replace('{n}', String((selectedSeatIndex ?? 0) + 1))}
             </DialogTitle>
           </DialogHeader>
 
           {dialogConfig && (
             <div className="space-y-6 py-4">
               <div className="space-y-2">
-                <Label>Player Type</Label>
+                <Label>{t('playerType')}</Label>
                 <div className="grid grid-cols-2 gap-2">
                   {(['Hero', 'Reg', 'Fish', 'Empty'] as PlayerType[]).map((type) => (
                     <div
@@ -616,10 +615,10 @@ export function TableEvAnalyzer() {
               {dialogConfig.type === 'Fish' && (
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <Label>VPIP %</Label>
+                    <Label>{t('vpipPct')}</Label>
                     <Select value={dialogConfig.fishVpip} onValueChange={handleVpipChange}>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select VPIP..." />
+                        <SelectValue placeholder={t('selectVpip')} />
                       </SelectTrigger>
                       <SelectContent>
                         {FISH_VPIP_PRESETS.map((preset) => (
@@ -642,8 +641,8 @@ export function TableEvAnalyzer() {
                     data-testid="toggle-fish-3bet"
                   >
                     <div>
-                      <span className="font-semibold text-sm">3bet 30%+</span>
-                      <p className="text-[11px] text-muted-foreground mt-0.5">Reduced position coefficients</p>
+                      <span className="font-semibold text-sm">{t('threeBet')}</span>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">{t('reducedCoefs')}</p>
                     </div>
                     <div className={cn(
                       "w-5 h-5 rounded border-2 flex items-center justify-center transition-all",
@@ -661,7 +660,7 @@ export function TableEvAnalyzer() {
 
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label className="text-xs text-muted-foreground">Lose Rate (bb/100)</Label>
+                      <Label className="text-xs text-muted-foreground">{t('loseRate')}</Label>
                       <Input
                         type="number"
                         value={dialogConfig.fishLoserate || 0}
@@ -670,7 +669,7 @@ export function TableEvAnalyzer() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label className="text-xs text-muted-foreground">Rake (bb/100)</Label>
+                      <Label className="text-xs text-muted-foreground">{t('rake')}</Label>
                       <Input
                         type="number"
                         value={dialogConfig.fishRake || 0}
@@ -685,8 +684,8 @@ export function TableEvAnalyzer() {
           )}
 
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setSelectedSeatIndex(null)}>Cancel</Button>
-            <Button onClick={handleSeatSave}>Save</Button>
+            <Button variant="outline" onClick={() => setSelectedSeatIndex(null)}>{t('cancel')}</Button>
+            <Button onClick={handleSeatSave}>{t('save')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
