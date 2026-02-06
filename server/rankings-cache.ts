@@ -533,6 +533,31 @@ function matchesBranch(
   return true;
 }
 
+function tryParseExactHand(input: string): string | null {
+  const clean = input.replace(/\s+/g, '');
+  const match = clean.match(/^([AKQJT2-9][shdc])([AKQJT2-9][shdc])([AKQJT2-9][shdc])([AKQJT2-9][shdc])([AKQJT2-9][shdc])$/i);
+  if (!match) return null;
+
+  const RANK_MAP: Record<string, number> = {
+    '2': 0, '3': 1, '4': 2, '5': 3, '6': 4, '7': 5, '8': 6, '9': 7,
+    'T': 8, 'J': 9, 'Q': 10, 'K': 11, 'A': 12
+  };
+  const SUIT_MAP: Record<string, number> = { 's': 0, 'h': 1, 'd': 2, 'c': 3 };
+
+  const cards: number[] = [];
+  for (let i = 1; i <= 5; i++) {
+    const card = match[i];
+    const rank = RANK_MAP[card[0].toUpperCase()];
+    const suit = SUIT_MAP[card[1].toLowerCase()];
+    if (rank === undefined || suit === undefined) return null;
+    cards.push(rank * 4 + suit);
+  }
+
+  if (new Set(cards).size !== 5) return null;
+
+  return canonicalKey(cards[0], cards[1], cards[2], cards[3], cards[4]);
+}
+
 export function filterRankings(searchQuery: string, offset: number, limit: number): { hands: HandResult[]; total: number } {
   if (!cachedData) return { hands: [], total: 0 };
 
@@ -545,38 +570,43 @@ export function filterRankings(searchQuery: string, offset: number, limit: numbe
   let filteredRanks = searchCache.get(cacheKey);
 
   if (!filteredRanks) {
-    const parsed = parseSearch(trimmed);
-    if (!parsed) {
-      return getRankingsPage(offset, limit);
-    }
-
-    filteredRanks = [];
-
-    if (parsed.type === 'percent') {
-      const startRank = Math.max(0, Math.floor(parsed.lo / 100 * cachedData.totalCanonical));
-      const endRank = Math.min(cachedData.totalCanonical, Math.ceil(parsed.hi / 100 * cachedData.totalCanonical));
-      for (let i = startRank; i < endRank; i++) filteredRanks.push(i);
+    const exactKey = tryParseExactHand(trimmed);
+    if (exactKey && cachedData.keyToRank.has(exactKey)) {
+      filteredRanks = [cachedData.keyToRank.get(exactKey)!];
     } else {
-      const { hands, totalCanonical } = cachedData;
+      const parsed = parseSearch(trimmed);
+      if (!parsed) {
+        return getRankingsPage(offset, limit);
+      }
 
-      for (let rank = 0; rank < totalCanonical; rank++) {
-        const hand = hands[rank];
-        const rankCounts: Record<string, number> = {};
-        const sc = [0, 0, 0, 0];
-        for (const c of hand.cards) {
-          const r = RANKS_DECODE[c >> 2];
-          rankCounts[r] = (rankCounts[r] || 0) + 1;
-          sc[c & 3]++;
-        }
-        let pairs = 0;
-        for (let s = 0; s < 4; s++) if (sc[s] >= 2) pairs++;
-        const suitType: 'ds' | 'ss' = pairs >= 2 ? 'ds' : 'ss';
+      filteredRanks = [];
 
-        let matched = false;
-        for (const branch of parsed.branches) {
-          if (matchesBranch(rankCounts, suitType, branch)) { matched = true; break; }
+      if (parsed.type === 'percent') {
+        const startRank = Math.max(0, Math.floor(parsed.lo / 100 * cachedData.totalCanonical));
+        const endRank = Math.min(cachedData.totalCanonical, Math.ceil(parsed.hi / 100 * cachedData.totalCanonical));
+        for (let i = startRank; i < endRank; i++) filteredRanks.push(i);
+      } else {
+        const { hands, totalCanonical } = cachedData;
+
+        for (let rank = 0; rank < totalCanonical; rank++) {
+          const hand = hands[rank];
+          const rankCounts: Record<string, number> = {};
+          const sc = [0, 0, 0, 0];
+          for (const c of hand.cards) {
+            const r = RANKS_DECODE[c >> 2];
+            rankCounts[r] = (rankCounts[r] || 0) + 1;
+            sc[c & 3]++;
+          }
+          let pairs = 0;
+          for (let s = 0; s < 4; s++) if (sc[s] >= 2) pairs++;
+          const suitType: 'ds' | 'ss' = pairs >= 2 ? 'ds' : 'ss';
+
+          let matched = false;
+          for (const branch of parsed.branches) {
+            if (matchesBranch(rankCounts, suitType, branch)) { matched = true; break; }
+          }
+          if (matched) filteredRanks.push(rank);
         }
-        if (matched) filteredRanks.push(rank);
       }
     }
 
