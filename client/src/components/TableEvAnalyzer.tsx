@@ -398,17 +398,17 @@ export function TableEvAnalyzer() {
               );
             })}
           </div>
-          <div className="text-center mt-4">
-            <button
-              onClick={() => setShowInfo(true)}
-              className="text-xs text-muted-foreground hover:text-primary transition-colors inline-flex items-center gap-1"
-              data-testid="link-how-it-works"
-            >
-              <Info className="w-3 h-3" />
-              How does it work?
-            </button>
-          </div>
         </CardContent>
+        <div className="px-6 pb-4">
+          <button
+            onClick={() => setShowInfo(true)}
+            className="text-xs text-muted-foreground hover:text-primary transition-colors inline-flex items-center gap-1"
+            data-testid="link-how-it-works"
+          >
+            <Info className="w-3 h-3" />
+            How does it work?
+          </button>
+        </div>
       </Card>
 
       <Dialog open={showInfo} onOpenChange={setShowInfo}>
