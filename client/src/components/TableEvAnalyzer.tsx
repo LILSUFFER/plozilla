@@ -400,7 +400,7 @@ export function TableEvAnalyzer() {
         <CardHeader className="pb-2">
           <CardTitle className="text-center text-lg">Table</CardTitle>
         </CardHeader>
-        <CardContent className="flex-1 flex flex-col items-center justify-start pt-2 gap-6">
+        <CardContent className="flex-1 flex flex-col items-center justify-center gap-6">
           <div className="flex items-center gap-2">
             {([6, 5, 4, 2] as TableSize[]).map((size) => (
               <Button
