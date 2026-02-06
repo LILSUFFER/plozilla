@@ -37,6 +37,7 @@ const translations = {
 
     navEquity: 'Equity',
     navTableEv: 'Table EV',
+    navRankings: 'Rankings',
     navLearn: 'Learn',
     pleaseLogIn: 'Please log in',
     redirecting: 'Redirecting to login...',
@@ -189,6 +190,13 @@ const translations = {
     calcDesc: 'Enter hands (7s6hJdQc8c) or ranges (AA, KK+, AK$s). Ranges use Monte Carlo sampling.',
     playersLabel: 'Players (5 cards each, min 2 required)',
     invalidBoard: 'Invalid: need more cards',
+    rankingsTitle: 'PLO5 Hand Rankings',
+    rankingsDesc: 'Poker hands ranked from strongest to weakest. In PLO5 you must use exactly 2 hole cards + 3 board cards.',
+    rankingsRank: 'Rank',
+    rankingsHand: 'Hand',
+    rankingsExample: 'Example',
+    rankingsCombos: 'Combinations',
+    rankingsNote: 'In 5-Card Omaha (PLO5), you receive 5 hole cards but must use exactly 2 of them with exactly 3 board cards to form your best 5-card hand.',
   },
   ru: {
     subtitle: 'Калькулятор эквити 5-Card Omaha',
@@ -224,6 +232,7 @@ const translations = {
 
     navEquity: 'Эквити',
     navTableEv: 'Table EV',
+    navRankings: 'Рейтинг',
     navLearn: 'Обучение',
     pleaseLogIn: 'Необходимо войти',
     redirecting: 'Перенаправление на вход...',
@@ -376,6 +385,13 @@ const translations = {
     calcDesc: 'Введите руки (7s6hJdQc8c) или диапазоны (AA, KK+, AK$s). Диапазоны используют Монте-Карло.',
     playersLabel: 'Игроки (5 карт, минимум 2)',
     invalidBoard: 'Ошибка: нужно больше карт',
+    rankingsTitle: 'Рейтинг рук PLO5',
+    rankingsDesc: 'Покерные руки от сильнейшей к слабейшей. В PLO5 нужно использовать ровно 2 карманные карты + 3 карты борда.',
+    rankingsRank: 'Ранг',
+    rankingsHand: 'Рука',
+    rankingsExample: 'Пример',
+    rankingsCombos: 'Комбинации',
+    rankingsNote: 'В 5-Card Omaha (PLO5) вы получаете 5 карманных карт, но должны использовать ровно 2 из них с ровно 3 картами борда для составления лучшей 5-карточной руки.',
   },
 } as const;
 

@@ -4,7 +4,7 @@ import { LanguageToggle } from '@/components/LanguageToggle';
 import { TableEvAnalyzer } from '@/components/TableEvAnalyzer';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { TrendingUp, DollarSign, BookOpen, LogOut, Loader2 } from 'lucide-react';
+import { TrendingUp, DollarSign, BookOpen, LogOut, Loader2, Trophy } from 'lucide-react';
 import { SiTelegram } from 'react-icons/si';
 import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
@@ -49,6 +49,7 @@ export default function TableEvPage() {
   const navItems = [
     { path: '/app', label: t('navEquity'), icon: TrendingUp },
     { path: '/app/table-ev', label: t('navTableEv'), icon: DollarSign },
+    { path: '/app/rankings', label: t('navRankings'), icon: Trophy },
     { path: '/app/learn', label: t('navLearn'), icon: BookOpen },
   ];
 

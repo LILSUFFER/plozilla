@@ -8,6 +8,7 @@ import NotFound from "@/pages/not-found";
 import Landing from "@/pages/Landing";
 import AppPage from "@/pages/AppPage";
 import TableEvPage from "@/pages/TableEvPage";
+import RankingsPage from "@/pages/RankingsPage";
 import LearnPage from "@/pages/LearnPage";
 
 function Router() {
@@ -16,6 +17,7 @@ function Router() {
       <Route path="/" component={Landing} />
       <Route path="/app" component={AppPage} />
       <Route path="/app/table-ev" component={TableEvPage} />
+      <Route path="/app/rankings" component={RankingsPage} />
       <Route path="/app/learn" component={LearnPage} />
       <Route component={NotFound} />
     </Switch>
