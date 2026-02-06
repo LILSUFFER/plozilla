@@ -167,7 +167,7 @@ export default function RankingsPage() {
 
         <div className="mb-3">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none z-10" />
             <Input
               value={searchInput}
               onChange={e => handleSearchChange(e.target.value)}
@@ -175,17 +175,14 @@ export default function RankingsPage() {
               className="pl-9 pr-9"
               data-testid="input-search-rankings"
             />
-            {searchInput && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                onClick={() => { setSearchInput(''); setActiveSearch(''); }}
-                data-testid="button-clear-search"
-              >
-                <X className="w-4 h-4" />
-              </Button>
-            )}
+            <button
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground z-10"
+              onClick={() => { setSearchInput(''); setActiveSearch(''); }}
+              style={{ visibility: searchInput ? 'visible' : 'hidden' }}
+              data-testid="button-clear-search"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         </div>
       </div>
