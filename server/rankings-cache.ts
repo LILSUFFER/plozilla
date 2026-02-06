@@ -4,7 +4,7 @@ import * as zlib from 'zlib';
 
 const TOTAL_HANDS_ALL = 2598960;
 const RANKS_DECODE = '23456789TJQKA';
-const DATA_FILE = path.join(process.cwd(), 'data', 'plo5_rankings.json.gz');
+const DATA_FILE = path.join(process.cwd(), 'public', 'plo5_rankings_v4.json.gz');
 
 const SUIT_PERMS: number[][] = [];
 for (let a = 0; a < 4; a++)
@@ -111,7 +111,7 @@ export function loadRankingsFromFile(): boolean {
   if (cachedData) return true;
 
   if (!fs.existsSync(DATA_FILE)) {
-    loadError = 'Rankings database not found. Run: npx tsx scripts/precompute_rankings.ts';
+    loadError = 'Rankings database not found. Run: npm run precompute:rankings';
     console.log(`Rankings file not found: ${DATA_FILE}`);
     console.log(loadError);
     return false;
@@ -125,22 +125,34 @@ export function loadRankingsFromFile(): boolean {
     const jsonStr = zlib.gunzipSync(compressed).toString('utf-8');
     const data = JSON.parse(jsonStr);
 
-    const hands: PrecomputedHand[] = data.hands;
+    const rawHands: any[] = data.hands;
+    rawHands.sort((a: any, b: any) => a.rank - b.rank);
+
+    const hands: PrecomputedHand[] = rawHands.map((h: any) => ({
+      key: h.hand_key,
+      cards: [h.card0, h.card1, h.card2, h.card3, h.card4],
+      equity: h.equity,
+      combos: h.combo_count,
+      percentile: h.percentile,
+    }));
+
     const keyToRank = new Map<string, number>();
+    let totalCombos = 0;
     for (let i = 0; i < hands.length; i++) {
       keyToRank.set(hands[i].key, i);
+      totalCombos += hands[i].combos;
     }
 
     cachedData = {
       hands,
       keyToRank,
-      totalCanonical: data.totalCanonical,
-      totalCombos: data.totalCombos,
+      totalCanonical: data.canonicalHands || hands.length,
+      totalCombos,
     };
 
     loadError = null;
     const elapsed = ((Date.now() - startLoad) / 1000).toFixed(1);
-    console.log(`Rankings loaded: ${hands.length.toLocaleString()} canonical hands (${data.totalCombos.toLocaleString()} total combos) in ${elapsed}s`);
+    console.log(`Rankings loaded: ${hands.length.toLocaleString()} canonical hands (${totalCombos.toLocaleString()} total combos) in ${elapsed}s`);
     return true;
   } catch (err) {
     loadError = `Failed to load rankings file: ${err instanceof Error ? err.message : String(err)}`;
