@@ -204,6 +204,12 @@ const translations = {
     rankingsGenerating: 'Generating rankings...',
     rankingsDS: 'ds',
     rankingsSS: 'ss',
+    rankingsSearch: 'Search hand or percent',
+    rankingsSearchPlaceholder: 'AAKKQ, AA, KKds, 20%, 5%-10%',
+    rankingsFound: 'Found',
+    rankingsTopPercent: 'Top {n}%',
+    rankingsPercentRange: '{a}% — {b}%',
+    rankingsNoResults: 'No hands found',
   },
   ru: {
     subtitle: 'Калькулятор эквити 5-Card Omaha',
@@ -406,6 +412,12 @@ const translations = {
     rankingsGenerating: 'Генерация рейтинга...',
     rankingsDS: 'дс',
     rankingsSS: 'сс',
+    rankingsSearch: 'Поиск руки или процент',
+    rankingsSearchPlaceholder: 'AAKKQ, AA, KKds, 20%, 5%-10%',
+    rankingsFound: 'Найдено',
+    rankingsTopPercent: 'Топ {n}%',
+    rankingsPercentRange: '{a}% — {b}%',
+    rankingsNoResults: 'Руки не найдены',
   },
 } as const;
 
