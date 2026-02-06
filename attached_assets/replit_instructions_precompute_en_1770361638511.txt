@@ -1,0 +1,25 @@
+COPY/PASTE THIS INTO REPLIT (IN ENGLISH) — YOU MUST IMPLEMENT IT EXACTLY
+
+I NEED A READY OFFLINE PRECOMPUTE SCRIPT IN THIS PROJECT (Node/TypeScript) THAT GENERATES A STATIC RANKINGS FILE.
+DO NOT DO ANY EQUITY CALCULATIONS AT RUNTIME.
+
+1) Add this file to the repo:
+   scripts/precompute_canonical_rankings_v4.ts
+   (Use the code provided below as-is.)
+
+2) Add an npm script in package.json:
+   "precompute:rankings": "tsx scripts/precompute_canonical_rankings_v4.ts"
+
+3) Running:
+   npm run precompute:rankings
+   must output:
+   public/plo5_rankings_v4.json.gz
+
+4) After that, refactor runtime so it NEVER seeds/calculates:
+   - Remove any automatic calls to seedRankingsInProcess() in server/routes.ts.
+   - If rankings file is missing, return a clear error and do NOT compute.
+   - Implement /api/rankings to read ONLY from the precomputed file.
+
+5) Acceptance tests:
+   - If public/plo5_rankings_v4.json.gz is missing, /api/rankings MUST error, not seed.
+   - There must be ZERO calls to calculateVsRandom/simulate in runtime.
