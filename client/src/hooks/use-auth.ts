@@ -27,7 +27,7 @@ export function useAuth() {
   });
 
   const login = () => {
-    window.location.href = "/api/auth/google";
+    window.location.href = "/auth";
   };
 
   const logout = () => {

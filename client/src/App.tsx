@@ -6,6 +6,9 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { I18nProvider } from "@/lib/i18n";
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/Landing";
+import AuthPage from "@/pages/AuthPage";
+import VerifyEmailPage from "@/pages/VerifyEmailPage";
+import ResetPasswordPage from "@/pages/ResetPasswordPage";
 import AppPage from "@/pages/AppPage";
 import TableEvPage from "@/pages/TableEvPage";
 import RankingsPage from "@/pages/RankingsPage";
@@ -15,6 +18,9 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Landing} />
+      <Route path="/auth" component={AuthPage} />
+      <Route path="/verify-email" component={VerifyEmailPage} />
+      <Route path="/reset-password" component={ResetPasswordPage} />
       <Route path="/app" component={AppPage} />
       <Route path="/app/table-ev" component={TableEvPage} />
       <Route path="/app/rankings" component={RankingsPage} />

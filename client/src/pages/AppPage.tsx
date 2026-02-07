@@ -25,7 +25,7 @@ export default function AppPage() {
         variant: "destructive",
       });
       setTimeout(() => {
-        window.location.href = "/api/login";
+        window.location.href = "/auth";
       }, 500);
     }
   }, [isLoading, isAuthenticated, toast]);

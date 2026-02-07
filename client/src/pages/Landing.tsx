@@ -33,7 +33,7 @@ export default function Landing() {
             <LanguageToggle />
             <ThemeToggle />
             <Button asChild data-testid="button-app">
-              <a href="/api/auth/google">
+              <a href="/auth">
                 {t('appButton')}
                 <ChevronRight className="w-4 h-4 ml-1" />
               </a>
@@ -61,10 +61,9 @@ export default function Landing() {
                       {t('signInGoogle')}
                     </a>
                   </Button>
-                  <Button size="lg" variant="outline" asChild data-testid="button-replit-signin">
-                    <a href="/api/login">
-                      <img src="https://replit.com/public/images/sm-logo.svg" alt="Replit" className="w-4 h-4 mr-2" />
-                      {t('signInReplit')}
+                  <Button size="lg" variant="outline" asChild data-testid="button-all-signin">
+                    <a href="/auth">
+                      {t('authLogin')} / {t('authSignup')}
                     </a>
                   </Button>
                 </div>
