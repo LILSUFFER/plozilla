@@ -15,9 +15,42 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { PlayingCard } from './PlayingCard';
 import { CardChips } from './CardChip';
-import { Play, Trash2, Plus, RotateCcw, Calculator, ClipboardPaste, FlaskConical } from 'lucide-react';
+import { Play, Trash2, Plus, RotateCcw, Calculator, ClipboardPaste, FlaskConical, Server } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/lib/i18n';
+
+async function callServerEquity(
+  hero: string,
+  board: string,
+  dead: string,
+  trials: number,
+  seed: number
+): Promise<{
+  ok: boolean;
+  equity?: number;
+  equityPct?: number;
+  wins?: number;
+  ties?: number;
+  losses?: number;
+  trials?: number;
+  seed?: number;
+  elapsedMs?: number;
+  error?: string;
+}> {
+  const res = await fetch('/api/equity', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      hero,
+      villain: '100%',
+      board: board || undefined,
+      dead: dead || undefined,
+      trials,
+      seed,
+    }),
+  });
+  return res.json();
+}
 
 const ALL_RANKS = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'];
 const ALL_SUITS = ['s', 'h', 'd', 'c'];
@@ -179,6 +212,8 @@ export function EquityCalculator() {
   const [seedInput, setSeedInput] = useState('12345');
   const [benchmarkResult, setBenchmarkResult] = useState<string | null>(null);
   const [isBenchmarking, setIsBenchmarking] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [usedServer, setUsedServer] = useState(false);
   
   const allUsedCards = new Set<string>();
   for (const card of board) {
@@ -261,6 +296,8 @@ export function EquityCalculator() {
     setProgress(0);
     setResetKey(k => k + 1);
     setBenchmarkResult(null);
+    setServerError(null);
+    setUsedServer(false);
   };
   
   const handlePasteHand = async () => {
@@ -344,6 +381,18 @@ export function EquityCalculator() {
     return isNaN(n) ? null : n;
   };
   
+  const canUseServer = (validPlayers: PlayerInput[]): boolean => {
+    if (validPlayers.length !== 2) return false;
+    const hero = validPlayers[0];
+    const villain = validPlayers[1];
+    if (hero.cards.length !== 5) return false;
+    if (villain.isRange) {
+      const pattern = villain.rangePattern?.trim() || villain.input.trim();
+      return pattern === '100%';
+    }
+    return false;
+  };
+
   const calculate = () => {
     const hasRanges = players.some(p => p.isRange);
     
@@ -355,10 +404,60 @@ export function EquityCalculator() {
     if (validPlayers.length < 2) return;
     
     setIsCalculating(true);
+    setServerError(null);
+    setUsedServer(false);
     
     const start = performance.now();
     const isPreflop = board.length === 0;
     const is2Player = validPlayers.length === 2;
+
+    if (canUseServer(validPlayers)) {
+      const heroStr = cardsToString(validPlayers[0].cards);
+      const boardStr = board.length > 0 ? cardsToString(board) : '';
+      const seedVal = getSeedValue() ?? 12345;
+      
+      setProgress(0);
+      callServerEquity(heroStr, boardStr, '', selectedTrials, seedVal)
+        .then(resp => {
+          const elapsed = performance.now() - start;
+          setCalcTime(elapsed);
+          
+          if (resp.ok && resp.equityPct !== undefined) {
+            setUsedServer(true);
+            setIsCached(false);
+            setResult({
+              results: [
+                {
+                  playerId: validPlayers[0].id,
+                  wins: resp.wins || 0,
+                  ties: resp.ties || 0,
+                  total: resp.trials || selectedTrials,
+                  equity: resp.equityPct,
+                },
+                {
+                  playerId: validPlayers[1].id,
+                  wins: resp.losses || 0,
+                  ties: resp.ties || 0,
+                  total: resp.trials || selectedTrials,
+                  equity: 100 - resp.equityPct,
+                },
+              ],
+              totalTrials: resp.trials || selectedTrials,
+              isExhaustive: false,
+            });
+          } else {
+            setServerError(resp.error || 'Unknown server error');
+          }
+          setIsCalculating(false);
+        })
+        .catch(err => {
+          const elapsed = performance.now() - start;
+          setCalcTime(elapsed);
+          setServerError(err.message || 'Network error');
+          setIsCalculating(false);
+        });
+      return;
+    }
     
     if (hasRanges) {
       const runRangeCalculation = async () => {
@@ -560,46 +659,19 @@ export function EquityCalculator() {
     ];
     
     const lines: string[] = [];
+    const seedVal = getSeedValue() ?? 12345;
     
     for (const bh of benchHands) {
-      const heroCards = parseCardsConcat(bh.hand);
-      if (!heroCards || heroCards.length !== 5) {
-        lines.push(`${bh.label}: parse error`);
-        continue;
-      }
-      
-      const seedVal = getSeedValue() ?? 12345;
-      const rng = mulberry32(seedVal);
-      
-      const usedByHero = new Set(heroCards.map(c => cardKey(c)));
-      let totalEq = 0;
-      let samples = 0;
-      
-      for (let trial = 0; trial < BENCH_TRIALS; trial++) {
-        const available = buildAvailableDeck(usedByHero);
-        const villainAndBoard = sampleCards(available, 10, rng);
-        if (villainAndBoard.length < 10) continue;
-        
-        const villainCards = villainAndBoard.slice(0, 5);
-        const boardCards = villainAndBoard.slice(5, 10);
-        
-        const trialPlayers: PlayerInput[] = [
-          { id: 1, cards: heroCards, input: bh.hand },
-          { id: 2, cards: villainCards, input: '' },
-        ];
-        
-        const res = calculateEquityFast(trialPlayers, boardCards);
-        const heroEq = res.results.find(r => r.playerId === 1);
-        if (heroEq) {
-          totalEq += heroEq.equity;
-          samples++;
+      try {
+        const resp = await callServerEquity(bh.hand, '', '', BENCH_TRIALS, seedVal);
+        if (resp.ok && resp.equityPct !== undefined) {
+          lines.push(`${bh.label}: ${resp.equityPct.toFixed(3)}% (${resp.trials} trials, seed=${seedVal}, ${resp.elapsedMs}ms server)`);
+        } else {
+          lines.push(`${bh.label}: error - ${resp.error}`);
         }
+      } catch (err: any) {
+        lines.push(`${bh.label}: network error - ${err.message}`);
       }
-      
-      const avgEq = samples > 0 ? (totalEq / samples).toFixed(3) : 'N/A';
-      lines.push(`${bh.label}: ${avgEq}% (${samples} samples, seed=${seedVal})`);
-      
-      await new Promise(resolve => setTimeout(resolve, 0));
     }
     
     setBenchmarkResult(lines.join('\n'));
@@ -701,7 +773,7 @@ export function EquityCalculator() {
           </div>
         </div>
         
-        {hasRanges && (
+        {(hasRanges || players.some(p => p.input.trim() === '100%')) && (
           <div className="space-y-3">
             <div className="flex items-center gap-3 flex-wrap">
               <Label className="text-sm shrink-0">{t('trialsLabel')}:</Label>
@@ -775,8 +847,23 @@ export function EquityCalculator() {
         
         {isCalculating && (
           <div className="flex items-center gap-3 text-sm text-muted-foreground">
-            <Progress value={progress} className="h-1.5 flex-1 max-w-[200px]" />
-            <span className="tabular-nums">{progress.toFixed(0)}%</span>
+            {progress > 0 ? (
+              <>
+                <Progress value={progress} className="h-1.5 flex-1 max-w-[200px]" />
+                <span className="tabular-nums">{progress.toFixed(0)}%</span>
+              </>
+            ) : (
+              <div className="flex items-center gap-2">
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                <span>{t('serverCalculating')}</span>
+              </div>
+            )}
+          </div>
+        )}
+        
+        {serverError && !isCalculating && (
+          <div className="p-3 rounded-md border border-destructive bg-destructive/10 text-sm text-destructive" data-testid="text-server-error">
+            {t('serverError')}: {serverError}
           </div>
         )}
         
@@ -794,6 +881,12 @@ export function EquityCalculator() {
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <h3 className="font-semibold">{t('equityResults')}</h3>
               <div className="flex items-center gap-2">
+                {usedServer && (
+                  <Badge variant="default" className="bg-blue-600" data-testid="badge-server">
+                    <Server className="w-3 h-3 mr-1" />
+                    {t('engineLabel')}
+                  </Badge>
+                )}
                 {isCached && (
                   <Badge variant="default" className="bg-green-600" data-testid="badge-cached">
                     {t('cached')}

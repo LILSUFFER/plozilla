@@ -255,6 +255,11 @@ const translations = {
     trialsShort300k: '300K',
     trialsShort600k: '600K',
     trialsShort2m: '2M',
+    serverCalculating: 'Calculating on server...',
+    serverBusy: 'Server is busy, please try again in a moment',
+    serverError: 'Server error',
+    serverTimeout: 'Calculation timed out',
+    engineLabel: 'Rust engine',
   },
   ru: {
     subtitle: 'Калькулятор эквити 5-Card Omaha',
@@ -508,6 +513,11 @@ const translations = {
     trialsShort300k: '300K',
     trialsShort600k: '600K',
     trialsShort2m: '2M',
+    serverCalculating: 'Расчёт на сервере...',
+    serverBusy: 'Сервер занят, попробуйте через минуту',
+    serverError: 'Ошибка сервера',
+    serverTimeout: 'Расчёт превысил время ожидания',
+    engineLabel: 'Rust движок',
   },
 } as const;
 
