@@ -658,3 +658,73 @@ export function getEquityCacheStats() {
     rankFileAvailable: isRankFileAvailable(),
   };
 }
+
+let binaryAvailable: boolean | null = null;
+let prodBinAvailable: boolean | null = null;
+
+function checkBinaryAvailable(): boolean {
+  if (binaryAvailable === null) {
+    try {
+      fs.accessSync(BINARY_PATH, fs.constants.X_OK);
+      binaryAvailable = true;
+    } catch {
+      binaryAvailable = false;
+    }
+  }
+  return binaryAvailable;
+}
+
+function checkProdBinAvailable(): boolean {
+  if (prodBinAvailable === null) {
+    try {
+      const stat = fs.statSync(PROD_BIN);
+      prodBinAvailable = stat.size > 0;
+    } catch {
+      prodBinAvailable = false;
+    }
+  }
+  return prodBinAvailable;
+}
+
+export function getEngineStatus() {
+  const binary = checkBinaryAvailable();
+  const rankFile = isRankFileAvailable();
+  const prodBin = checkProdBinAvailable();
+  const rangeReady = binary && rankFile && prodBin;
+  const baseReady = binary || !!REMOTE_URL;
+
+  return {
+    binary: { path: BINARY_PATH, available: binary },
+    rankFile: { path: RANK_FILE, available: rankFile, expectedSize: 2598960 * 4 },
+    prodBin: { path: PROD_BIN, available: prodBin },
+    engine: {
+      mode: REMOTE_URL ? "remote" : "local",
+      remoteUrl: REMOTE_URL || null,
+      forceRemote: FORCE_REMOTE,
+      maxConcurrent: MAX_CONCURRENT,
+      activeJobs,
+    },
+    capabilities: {
+      baseEquity: baseReady,
+      rangeEquity: rangeReady,
+      rankIndexMode: rangeReady ? "concrete_combo_uniform" : null,
+      totalConcrete: rangeReady ? 2598960 : null,
+    },
+    cache: {
+      size: cache.size,
+      maxSize: MAX_CACHE_SIZE,
+      ttlMs: CACHE_TTL_MS,
+    },
+  };
+}
+
+export function logStartupStatus() {
+  const status = getEngineStatus();
+  console.log("[equity] Engine status:");
+  console.log(`  Binary:     ${status.binary.available ? "OK" : "MISSING"} (${status.binary.path})`);
+  console.log(`  Rank file:  ${status.rankFile.available ? "OK" : "MISSING"} (${status.rankFile.path})`);
+  console.log(`  Prod bin:   ${status.prodBin.available ? "OK" : "MISSING"} (${status.prodBin.path})`);
+  console.log(`  Mode:       ${status.engine.mode}${status.engine.forceRemote ? " (forced)" : ""}`);
+  console.log(`  Range mode: ${status.capabilities.rangeEquity ? "READY (concrete_combo_uniform, 2,598,960 hands)" : "NOT AVAILABLE"}`);
+  console.log(`  Base equity: ${status.capabilities.baseEquity ? "READY" : "NOT AVAILABLE"}`);
+}

@@ -15,7 +15,7 @@ import {
   lookupByCanonicalKey,
   getRankingsStatus,
 } from "./rankings-cache";
-import { runEquity, runBreakdown, getEquityCacheStats, type EquityRequest, type BreakdownRequest } from "./equity";
+import { runEquity, runBreakdown, getEquityCacheStats, getEngineStatus, logStartupStatus, type EquityRequest, type BreakdownRequest } from "./equity";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -24,6 +24,7 @@ export async function registerRoutes(
   await setupCombinedAuth(app);
 
   loadRankingsFromFile();
+  logStartupStatus();
 
   app.get('/api/rankings', (req, res) => {
     if (!isRankingsReady()) {
@@ -66,7 +67,8 @@ export async function registerRoutes(
 
   app.get('/api/equity/status', (_req, res) => {
     const stats = getEquityCacheStats();
-    res.json(stats);
+    const engine = getEngineStatus();
+    res.json({ ...stats, ...engine });
   });
 
   app.post('/api/equity', async (req, res) => {
