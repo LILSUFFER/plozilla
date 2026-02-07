@@ -2,10 +2,12 @@ import { spawn, type ChildProcess } from "child_process";
 import path from "path";
 
 const BINARY_PATH = path.resolve("engine-rust/target/release/plo5_ranker");
-const MAX_CONCURRENT = 2;
+const MAX_CONCURRENT = 1;
 const TIMEOUT_MS = 120_000;
 const CACHE_TTL_MS = 60 * 60 * 1000;
 const MAX_CACHE_SIZE = 500;
+
+const REMOTE_URL = process.env.EQUITY_ENGINE_URL || "";
 
 let activeJobs = 0;
 
@@ -166,7 +168,12 @@ export async function runEquity(req: EquityRequest): Promise<EquityResponse> {
 
   activeJobs++;
   try {
-    const result = await spawnEquity(req.hero, board, dead, trials, seed);
+    let result: EquityResponse;
+    if (REMOTE_URL) {
+      result = await remoteEquity(req.hero, req.villain, board, dead, trials, seed);
+    } else {
+      result = await spawnEquity(req.hero, board, dead, trials, seed);
+    }
     if (result.ok) {
       pruneCache();
       cache.set(key, { result, timestamp: Date.now() });
@@ -174,6 +181,36 @@ export async function runEquity(req: EquityRequest): Promise<EquityResponse> {
     return result;
   } finally {
     activeJobs--;
+  }
+}
+
+async function remoteEquity(
+  hero: string,
+  villain: string,
+  board: string,
+  dead: string,
+  trials: number,
+  seed: number
+): Promise<EquityResponse> {
+  const url = REMOTE_URL.replace(/\/$/, "") + "/api/equity";
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hero, villain, board: board || undefined, dead: dead || undefined, trials, seed }),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    const data = await resp.json();
+    return data as EquityResponse;
+  } catch (err: any) {
+    clearTimeout(timer);
+    if (err.name === "AbortError") {
+      return { ok: false, error: `Remote engine timed out (${TIMEOUT_MS / 1000}s limit)` };
+    }
+    return { ok: false, error: `Remote engine error: ${err.message}` };
   }
 }
 
@@ -275,5 +312,6 @@ export function getEquityCacheStats() {
     size: cache.size,
     activeJobs,
     maxConcurrent: MAX_CONCURRENT,
+    mode: REMOTE_URL ? "remote" : "local",
   };
 }
