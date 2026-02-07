@@ -3,13 +3,14 @@ import path from "path";
 import fs from "fs";
 
 const BINARY_PATH = path.resolve("engine-rust/target/release/plo5_ranker");
-const RANK_FILE = path.resolve("public/rank_index_all_2598960.u32");
-const MAX_CONCURRENT = 1;
+const RANK_FILE = path.resolve(process.env.RANK_FILE_PATH || "public/rank_index_all_2598960.u32");
+const MAX_CONCURRENT = 2;
 const TIMEOUT_MS = 120_000;
 const CACHE_TTL_MS = 60 * 60 * 1000;
 const MAX_CACHE_SIZE = 500;
 
 const REMOTE_URL = process.env.EQUITY_ENGINE_URL || "";
+const FORCE_REMOTE = process.env.FORCE_REMOTE_EQUITY === "true";
 
 let activeJobs = 0;
 let rankFileAvailable: boolean | null = null;
@@ -92,11 +93,11 @@ export interface EquityRequest {
 function parseVillainRange(v: string): { valid: boolean; pct: number; isRange: boolean } {
   const s = v.trim().toLowerCase();
   if (s === "100%") return { valid: true, pct: 100, isRange: false };
-  const m = s.match(/^(?:top\s*)?(\d+(?:\.\d+)?)%$/);
+  const m = s.match(/^(\d+(?:\.\d+)?)%$/);
   if (m) {
     const pct = parseFloat(m[1]);
     if (pct === 100) return { valid: true, pct: 100, isRange: false };
-    if (pct > 0 && pct <= 100) return { valid: true, pct, isRange: true };
+    if (pct > 0 && pct < 100) return { valid: true, pct, isRange: true };
   }
   return { valid: false, pct: 0, isRange: false };
 }
@@ -122,7 +123,7 @@ function validateRequest(req: EquityRequest): string | null {
   }
   const vr = parseVillainRange(req.villain);
   if (!vr.valid) {
-    return `Invalid villain range: '${req.villain}'. Use '100%', 'topN%', or 'N%' (e.g. '10%' or 'top10%')`;
+    return `Invalid villain range: '${req.villain}'. Use 'N%' (e.g. '10%', '20%', '100%')`;
   }
   if (vr.isRange && !isRankFileAvailable()) {
     return "Rank index file not available. Range-based villain requires precomputed data.";
@@ -248,6 +249,10 @@ export async function runEquity(req: EquityRequest): Promise<EquityResponse> {
     return { ok: false, error: "Server busy, please try again in a moment" };
   }
 
+  if (FORCE_REMOTE && !REMOTE_URL) {
+    return { ok: false, error: "FORCE_REMOTE_EQUITY is enabled but EQUITY_ENGINE_URL is not set. Cannot compute locally." };
+  }
+
   activeJobs++;
   try {
     let result: EquityResponse;
@@ -309,7 +314,7 @@ function spawnEquity(
 ): Promise<EquityResponse> {
   return new Promise((resolve) => {
     const vr = parseVillainRange(villain);
-    const villainRangeArg = vr.isRange ? `top${vr.pct}%` : "100%";
+    const villainRangeArg = vr.isRange ? `${vr.pct}%` : "100%";
 
     const threadsArg = process.env.EQUITY_THREADS ?? "auto";
     const args = [
@@ -503,6 +508,10 @@ export async function runBreakdown(req: BreakdownRequest): Promise<BreakdownResp
     return { ok: false, error: "Server busy, please try again in a moment" };
   }
 
+  if (FORCE_REMOTE && !REMOTE_URL) {
+    return { ok: false, error: "FORCE_REMOTE_EQUITY is enabled but EQUITY_ENGINE_URL is not set. Cannot compute locally." };
+  }
+
   activeJobs++;
   try {
     let result: BreakdownResponse;
@@ -547,7 +556,7 @@ function spawnBreakdown(req: BreakdownRequest): Promise<BreakdownResponse> {
     const dead = req.dead?.trim() || "";
     const villainRange = req.villainRange?.trim() || "100%";
     const vr = parseVillainRange(villainRange);
-    const villainRangeArg = vr.isRange ? `top${vr.pct}%` : "100%";
+    const villainRangeArg = vr.isRange ? `${vr.pct}%` : "100%";
 
     const threadsArg = process.env.EQUITY_THREADS ?? "auto";
     const args = [
@@ -625,6 +634,7 @@ export function getEquityCacheStats() {
     activeJobs,
     maxConcurrent: MAX_CONCURRENT,
     mode: REMOTE_URL ? "remote" : "local",
+    forceRemote: FORCE_REMOTE,
     rankFileAvailable: isRankFileAvailable(),
   };
 }
