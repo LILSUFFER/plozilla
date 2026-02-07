@@ -90,7 +90,7 @@ export function CardPickerModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent data-testid="card-picker-modal" className="max-w-lg">
+      <DialogContent data-testid="card-picker-modal" className="max-w-fit p-4 sm:p-6">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
@@ -107,40 +107,42 @@ export function CardPickerModal({
           ))}
         </div>
 
-        <div className="flex flex-col gap-1">
-          {SUIT_ORDER.map((suit) => (
-            <div key={suit} className="flex items-center gap-1">
-              <span className={cn('w-5 text-center font-bold text-sm', SUIT_TEXT_COLOR[suit])}>
+        <div className="grid gap-1" style={{ gridTemplateColumns: 'auto repeat(13, 1fr)' }}>
+          {SUIT_ORDER.map((suit) => {
+            const cells = [];
+            cells.push(
+              <span key={`suit-${suit}`} className={cn('flex items-center justify-center font-bold text-sm', SUIT_TEXT_COLOR[suit])}>
                 {SUIT_SYMBOLS[suit]}
               </span>
-              {RANK_ORDER.map((rank) => {
-                const card: Card = { rank, suit };
-                const key = cardKey(card);
-                const isSelected = selectionKeys.has(key);
-                const isDisabled = disabledCards.has(key);
-                const display = getRankDisplay(rank);
+            );
+            RANK_ORDER.forEach((rank) => {
+              const card: Card = { rank, suit };
+              const key = cardKey(card);
+              const isSelected = selectionKeys.has(key);
+              const isDisabled = disabledCards.has(key);
+              const display = getRankDisplay(rank);
 
-                return (
-                  <button
-                    key={key}
-                    data-testid={`card-picker-cell-${key}`}
-                    type="button"
-                    disabled={isDisabled}
-                    onClick={() => toggleCard(card)}
-                    className={cn(
-                      'w-9 h-8 rounded-md text-xs font-bold text-white transition-all duration-150 flex items-center justify-center',
-                      SUIT_BG[suit],
-                      isSelected && 'ring-2 ring-primary ring-offset-1 ring-offset-background',
-                      isDisabled && 'opacity-30 cursor-not-allowed',
-                      !isDisabled && !isSelected && 'hover-elevate'
-                    )}
-                  >
-                    {display}
-                  </button>
-                );
-              })}
-            </div>
-          ))}
+              cells.push(
+                <button
+                  key={key}
+                  data-testid={`card-picker-cell-${key}`}
+                  type="button"
+                  disabled={isDisabled}
+                  onClick={() => toggleCard(card)}
+                  className={cn(
+                    'h-8 min-w-[2rem] rounded-md text-xs font-bold text-white transition-all duration-150 flex items-center justify-center',
+                    SUIT_BG[suit],
+                    isSelected && 'ring-2 ring-primary ring-offset-1 ring-offset-background',
+                    isDisabled && 'opacity-30 cursor-not-allowed',
+                    !isDisabled && !isSelected && 'hover-elevate'
+                  )}
+                >
+                  {display}
+                </button>
+              );
+            });
+            return cells;
+          })}
         </div>
 
         <div className="flex items-center justify-between gap-2 flex-wrap pt-2">
