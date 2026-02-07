@@ -119,18 +119,29 @@ async function callServerEquity(
   return res.json();
 }
 
+const TOTAL_COMBOS = 2598960;
+
 const VILLAIN_RANGE_PRESETS = [
   { label: '100%', value: '100%' },
-  { label: 'Top 1%', value: 'top1%' },
-  { label: 'Top 3%', value: 'top3%' },
-  { label: 'Top 5%', value: 'top5%' },
-  { label: 'Top 10%', value: 'top10%' },
-  { label: 'Top 20%', value: 'top20%' },
+  { label: '20%', value: '20%' },
+  { label: '10%', value: '10%' },
+  { label: '5%', value: '5%' },
+  { label: '3%', value: '3%' },
+  { label: '1%', value: '1%' },
 ] as const;
 
 function isVillainRangePattern(s: string): boolean {
   const t = s.trim().toLowerCase();
-  return t === '100%' || /^(?:top\s*)?\d+(\.\d+)?%$/.test(t);
+  return /^\d+(\.\d+)?%$/.test(t);
+}
+
+function getVillainCombos(s: string): number | null {
+  const t = s.trim().toLowerCase();
+  const m = t.match(/^(\d+(?:\.\d+)?)%$/);
+  if (!m) return null;
+  const pct = parseFloat(m[1]);
+  if (pct <= 0 || pct > 100) return null;
+  return Math.round(TOTAL_COMBOS * (pct / 100));
 }
 
 const ALL_RANKS = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'];
@@ -592,6 +603,9 @@ export function EquityCalculator() {
     setIsCalculating(true);
     setServerError(null);
     setUsedServer(false);
+    setEngineMode(null);
+    setEngineElapsedMs(null);
+    setThreadsUsed(null);
     setVillainRangeUsed(null);
     
     const start = performance.now();
@@ -612,6 +626,9 @@ export function EquityCalculator() {
           
           if (resp.ok && resp.equityPct !== undefined) {
             setUsedServer(true);
+            setEngineMode(resp.engineMode || null);
+            setEngineElapsedMs(resp.elapsedMs ?? null);
+            setThreadsUsed(resp.threadsUsed ?? null);
             setVillainRangeUsed(resp.villainRange || villainStr);
             setIsCached(false);
             setResult({
@@ -1251,6 +1268,18 @@ export function EquityCalculator() {
                   );
                 })}
               </div>
+              {(() => {
+                const villainInput = players[1]?.input?.trim() || '';
+                const combos = getVillainCombos(villainInput);
+                if (combos !== null && combos < TOTAL_COMBOS) {
+                  return (
+                    <Badge variant="secondary" data-testid="badge-villain-combos">
+                      {combos.toLocaleString()} {t('combos')}
+                    </Badge>
+                  );
+                }
+                return null;
+              })()}
             </div>
           </div>
         )}
@@ -1384,10 +1413,15 @@ export function EquityCalculator() {
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <h3 className="font-semibold">{t('equityResults')}</h3>
               <div className="flex items-center gap-2">
-                {usedServer && (
-                  <Badge variant="default" className="bg-blue-600" data-testid="badge-server">
+                {usedServer && engineMode && (
+                  <Badge variant="default" className={engineMode === 'remote' ? 'bg-blue-600' : 'bg-orange-600'} data-testid="badge-engine-mode">
                     <Server className="w-3 h-3 mr-1" />
-                    {t('engineLabel')}
+                    {engineMode === 'remote' ? t('engineRemote') : t('engineLocal')}
+                  </Badge>
+                )}
+                {usedServer && engineElapsedMs !== null && (
+                  <Badge variant="outline" data-testid="badge-engine-elapsed">
+                    {t('engineTime')}: {engineElapsedMs < 1000 ? `${engineElapsedMs}ms` : `${(engineElapsedMs / 1000).toFixed(1)}s`}
                   </Badge>
                 )}
                 {villainRangeUsed && villainRangeUsed !== '100%' && (
