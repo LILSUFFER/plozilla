@@ -215,13 +215,13 @@ export function EquityCalculator() {
         };
       }
       
-      if (rangeResult.isRange && rangeResult.hands.length > 0) {
+      if (rangeResult.isRange && rangeResult.comboCount > 0) {
         return {
           ...p,
           input,
-          cards: rangeResult.hands[0],
+          cards: rangeResult.hands.length > 0 ? rangeResult.hands[0] : [],
           isRange: true,
-          rangeHands: rangeResult.hands,
+          rangeHands: rangeResult.hands.length > 0 ? rangeResult.hands : undefined,
           rangePattern: input.trim(),
           comboCount: rangeResult.comboCount
         };
@@ -387,56 +387,51 @@ export function EquityCalculator() {
             const sampledHands: Card[][] = [];
             let validSample = true;
             
+            const usedSoFar = new Set(usedByBoard);
+            
             for (const p of validPlayers) {
-              if (p.isRange && p.rangePattern) {
-                const hand = generateRandomHandFromPattern(p.rangePattern, usedByBoard, rng);
+              if (p.isRange && p.rangeHands && p.rangeHands.length > 0) {
+                const hand = getRandomHandFromRange(p.rangeHands, usedSoFar, rng);
                 if (!hand || hand.length !== 5) {
                   validSample = false;
                   break;
                 }
                 sampledHands.push(hand);
-              } else if (p.isRange && p.rangeHands) {
-                const hand = getRandomHandFromRange(p.rangeHands, usedByBoard, rng);
-                if (!hand || hand.length !== 5) {
-                  validSample = false;
-                  break;
+                for (const c of hand) usedSoFar.add(cardKey(c));
+              } else if (p.isRange && p.rangePattern) {
+                const isPercent = /^\d+(?:\.\d+)?\s*%/.test(p.rangePattern);
+                if (isPercent) {
+                  const available = buildAvailableDeck(usedSoFar);
+                  if (available.length < 5) { validSample = false; break; }
+                  const hand = sampleCards(available, 5, rng);
+                  sampledHands.push(hand);
+                  for (const c of hand) usedSoFar.add(cardKey(c));
+                } else {
+                  const hand = generateRandomHandFromPattern(p.rangePattern, usedSoFar, rng);
+                  if (!hand || hand.length !== 5) {
+                    validSample = false;
+                    break;
+                  }
+                  sampledHands.push(hand);
+                  for (const c of hand) usedSoFar.add(cardKey(c));
                 }
-                sampledHands.push(hand);
               } else {
                 if (p.cards.length !== 5) {
                   validSample = false;
                   break;
                 }
-                if (p.cards.some(c => usedByBoard.has(cardKey(c)))) {
+                if (p.cards.some(c => usedSoFar.has(cardKey(c)))) {
                   validSample = false;
                   break;
                 }
                 sampledHands.push(p.cards);
+                for (const c of p.cards) usedSoFar.add(cardKey(c));
               }
             }
             
             if (!validSample || sampledHands.length !== validPlayers.length) continue;
             
-            const allHandCards = new Set<string>();
-            let hasConflict = false;
-            for (const hand of sampledHands) {
-              for (const c of hand) {
-                const key = cardKey(c);
-                if (allHandCards.has(key)) {
-                  hasConflict = true;
-                  break;
-                }
-                allHandCards.add(key);
-              }
-              if (hasConflict) break;
-            }
-            
-            if (hasConflict) continue;
-            
-            const usedForBoard = new Set(allHandCards);
-            for (const c of board) usedForBoard.add(cardKey(c));
-            
-            const availableForBoard = buildAvailableDeck(usedForBoard);
+            const availableForBoard = buildAvailableDeck(usedSoFar);
             const boardRemaining = 5 - board.length;
             
             if (availableForBoard.length < boardRemaining) continue;

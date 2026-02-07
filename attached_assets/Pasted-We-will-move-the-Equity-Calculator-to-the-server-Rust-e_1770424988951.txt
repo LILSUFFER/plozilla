@@ -1,0 +1,92 @@
+We will move the Equity Calculator to the server (Rust engine) to achieve PPT-like speed and correctness for large trials.
+Client must NOT run heavy Monte Carlo loops anymore (only UI). All heavy compute happens via Rust binary.
+
+GOAL:
+- Provide accurate PLO5 equity for:
+  - Hero hand (exactly 5 cards) vs Villain range (start with "100%" only)
+  - Optional board (0/3/4/5 cards), optional dead cards
+  - Trials presets: 100k / 300k / 600k / 2M
+  - Deterministic seed support (reproducible results)
+- Result must match reference within expected MC variance and scale correctly to %.
+
+ARCHITECTURE:
+1) Add server API endpoint:
+   POST /api/equity
+   Request JSON:
+     {
+       "game": "plo5",
+       "hero": "JsTh5dTc4c",          // exactly 10 chars card string or space-separated
+       "villain": "100%",             // v1: only allow "100%"
+       "board": "",                   // optional: "" or 3/4/5 cards
+       "dead": "",                    // optional dead cards
+       "trials": 600000,              // int
+       "seed": 12345                  // optional int; if omitted, use secure random seed but return it
+     }
+
+   Response JSON:
+     {
+       "ok": true,
+       "equity": 0.5389,              // 0..1
+       "equityPct": 53.89,            // 0..100
+       "wins": <int>,
+       "ties": <int>,
+       "losses": <int>,
+       "trials": <int>,
+       "seed": <int>,
+       "elapsedMs": <int>
+     }
+   On error:
+     { "ok": false, "error": "message" }
+
+2) Server implementation detail:
+   - Use child_process.spawn to run Rust binary:
+       engine-rust/target/release/plo5_ranker equity ...
+   - If binary missing, return a clear error and instructions.
+   - Enforce timeout (e.g. 120s). Kill process on timeout.
+   - Limit concurrency: max 1–2 concurrent equity jobs (queue the rest or reject with "busy").
+   - Add caching: key = hero+villain+board+dead+trials+seed
+     Store in memory Map with TTL (e.g. 1 hour). If cached, return instantly.
+
+3) Rust binary changes (if needed):
+   - Ensure command exists:
+       plo5_ranker equity --hero <cards> --villain "100%" --board <cards> --dead <cards> --trials <N> --seed <S>
+   - Output must be JSON to stdout (single line), easy to parse.
+   - Must validate:
+       hero exactly 5 cards, no duplicates, excludes board/dead
+       villain range "100%" uses remaining deck excluding hero+board+dead
+   - Sampling must be unbiased and use seeded RNG (if seed provided).
+   - Use correct pools: remaining deck after hero/board/dead; villain draws 5 from that.
+   - Evaluate PLO5 correctly: exactly 2 from hand + 3 from board.
+
+4) Client changes:
+   - Equity page should call POST /api/equity.
+   - UI must:
+     - validate hero hand exactly 5 cards before request
+     - show trials selector (100k/300k/600k/2M)
+     - show loading state + spinner
+     - show returned equityPct with 2 decimals
+     - show seed and elapsed time
+   - Remove/disable the old client-side Monte Carlo loop to avoid freezing.
+
+5) Testing / Benchmarks:
+   - Add a dev script or test route that compares:
+       JsTh5dTc4c vs 100% @ 600k trials
+       AcAhTh8d7c vs 100% @ 600k trials
+     Confirm results are in the expected neighborhood (matches earlier references).
+   - Ensure repeated calls with same seed return identical results (within exact equality if deterministic).
+
+FILES TO TOUCH (likely):
+- server/routes.ts (add /api/equity)
+- server/equity.ts (new helper module to run binary, cache, queue, timeout)
+- client/src/pages/EquityPage.tsx or existing equity component (switch to API)
+- engine-rust/src/main.rs (add/confirm equity subcommand with JSON output)
+
+IMPORTANT:
+- Do not change rankings system in this task.
+- Keep API response stable and explicit about scale (0..1 and 0..100).
+- Make sure the endpoint is safe (timeout, concurrency limit) to avoid server overload.
+
+Deliver:
+- PR with code changes
+- brief explanation of how to run locally + how to build the Rust binary
+- example curl command to test /api/equity

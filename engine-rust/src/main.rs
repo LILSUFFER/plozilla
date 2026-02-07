@@ -227,6 +227,23 @@ fn three_card_subsets(board: &[u8; 5]) -> [[u8; 3]; 10] {
     subs
 }
 
+fn three_card_subsets_from_slice(board: &[u8]) -> [[u8; 3]; 10] {
+    let mut subs = [[0u8; 3]; 10];
+    let mut idx = 0;
+    let n = board.len();
+    for i in 0..n {
+        for j in (i + 1)..n {
+            for k in (j + 1)..n {
+                if idx < 10 {
+                    subs[idx] = [board[i], board[j], board[k]];
+                    idx += 1;
+                }
+            }
+        }
+    }
+    subs
+}
+
 fn merge5(a: &[u8], b: &[u8], out: &mut [u8; 5]) {
     let (mut i, mut j, mut k) = (0, 0, 0);
     while i < a.len() && j < b.len() && k < 5 {
@@ -863,7 +880,7 @@ fn parse_baselines(json: &str) -> Vec<([u8; 5], f64)> {
     results
 }
 
-fn parse_hand(s: &str) -> Option<[u8; 5]> {
+fn parse_cards_vec(s: &str) -> Vec<u8> {
     let ranks = "23456789TJQKA";
     let suits = "cdhs";
     let s = s.trim();
@@ -884,6 +901,11 @@ fn parse_hand(s: &str) -> Option<[u8; 5]> {
         }
         i += 1;
     }
+    cards
+}
+
+fn parse_hand(s: &str) -> Option<[u8; 5]> {
+    let cards = parse_cards_vec(s);
     if cards.len() == 5 {
         let mut arr = [cards[0], cards[1], cards[2], cards[3], cards[4]];
         arr.sort();
@@ -891,6 +913,22 @@ fn parse_hand(s: &str) -> Option<[u8; 5]> {
     } else {
         None
     }
+}
+
+fn sample_n(pool: &[u8], n: usize, rng: &mut Xorshift64) -> Vec<u8> {
+    let plen = pool.len();
+    let mut indices = Vec::with_capacity(n);
+    for _ in 0..n {
+        loop {
+            let idx = rng.gen_range(plen);
+            let mut dup = false;
+            for &prev in &indices {
+                if prev == idx { dup = true; break; }
+            }
+            if !dup { indices.push(idx); break; }
+        }
+    }
+    indices.iter().map(|&i| pool[i]).collect()
 }
 
 fn run_accuracy(args: &[String]) {
@@ -1091,47 +1129,96 @@ fn print_bin_info(path: &str) {
 
 fn run_equity(args: &[String]) {
     let hand_str = parse_flag(args, "--hand").unwrap_or_else(|| {
-        eprintln!("Usage: plo5_ranker equity --hand <hand> [--trials N] [--seed S]");
-        eprintln!("Example: plo5_ranker equity --hand AcAdKhQh5s --trials 600000 --seed 12345");
+        eprintln!("Usage: plo5_ranker equity --hand <hand> [--board <cards>] [--dead <cards>] [--trials N] [--seed S] [--json]");
+        eprintln!("Example: plo5_ranker equity --hand AcAdKhQh5s --trials 600000 --seed 12345 --json");
         std::process::exit(1);
     });
     let trials: u64 = parse_flag(args, "--trials")
         .and_then(|s| s.parse().ok()).unwrap_or(600_000);
     let seed: u64 = parse_flag(args, "--seed")
         .and_then(|s| s.parse().ok()).unwrap_or(12345);
+    let json_output = args.iter().any(|a| a == "--json");
+
+    let board_str = parse_flag(args, "--board").unwrap_or_default();
+    let dead_str = parse_flag(args, "--dead").unwrap_or_default();
 
     let hand = parse_hand(&hand_str).unwrap_or_else(|| {
+        if json_output {
+            println!("{{\"ok\":false,\"error\":\"Could not parse hand: {} (need exactly 5 cards)\"}}", hand_str);
+            std::process::exit(0);
+        }
         eprintln!("Could not parse hand: {}", hand_str);
         std::process::exit(1);
     });
+
+    let board_cards = parse_cards_vec(&board_str);
+    let dead_cards = parse_cards_vec(&dead_str);
+
+    if !board_cards.is_empty() && board_cards.len() != 3 && board_cards.len() != 4 && board_cards.len() != 5 {
+        if json_output {
+            println!("{{\"ok\":false,\"error\":\"Board must have 0, 3, 4, or 5 cards (got {})\"}}", board_cards.len());
+            std::process::exit(0);
+        }
+        eprintln!("Board must have 0, 3, 4, or 5 cards (got {})", board_cards.len());
+        std::process::exit(1);
+    }
+
+    let mut excluded: Vec<u8> = Vec::new();
+    for &c in hand.iter() { excluded.push(c); }
+    for &c in &board_cards { excluded.push(c); }
+    for &c in &dead_cards { excluded.push(c); }
+    excluded.sort();
+    excluded.dedup();
+    if excluded.len() != hand.len() + board_cards.len() + dead_cards.len() {
+        if json_output {
+            println!("{{\"ok\":false,\"error\":\"Duplicate cards found among hand, board, and dead cards\"}}");
+            std::process::exit(0);
+        }
+        eprintln!("Duplicate cards found among hand, board, and dead cards");
+        std::process::exit(1);
+    }
+
     let canonical = canonicalize(&hand);
     let card_names: Vec<String> = canonical.iter().map(|&c| card_name(c)).collect();
+    let board_to_fill = 5 - board_cards.len();
 
-    eprintln!("╔══════════════════════════════════════════════╗");
-    eprintln!("║       PLO5 Single-Hand Equity (PPT-style)    ║");
-    eprintln!("╚══════════════════════════════════════════════╝");
-    eprintln!("  Hand:    {} → canonical: {}", hand_str, card_names.join(""));
-    eprintln!("  Trials:  {}", trials);
-    eprintln!("  Seed:    {}", seed);
-    eprintln!();
+    if !json_output {
+        eprintln!("╔══════════════════════════════════════════════╗");
+        eprintln!("║       PLO5 Single-Hand Equity (PPT-style)    ║");
+        eprintln!("╚══════════════════════════════════════════════╝");
+        eprintln!("  Hand:    {} → canonical: {}", hand_str, card_names.join(""));
+        if !board_cards.is_empty() {
+            let bn: Vec<String> = board_cards.iter().map(|&c| card_name(c)).collect();
+            eprintln!("  Board:   {}", bn.join(""));
+        }
+        if !dead_cards.is_empty() {
+            let dn: Vec<String> = dead_cards.iter().map(|&c| card_name(c)).collect();
+            eprintln!("  Dead:    {}", dn.join(""));
+        }
+        eprintln!("  Trials:  {}", trials);
+        eprintln!("  Seed:    {}", seed);
+        eprintln!();
+    }
 
     let t0 = Instant::now();
-    eprintln!("[1/2] Initializing eval table...");
+    if !json_output { eprintln!("[1/2] Initializing eval table..."); }
     let table = init_eval_table();
-    eprintln!("       Done in {:.2}s", t0.elapsed().as_secs_f64());
+    if !json_output { eprintln!("       Done in {:.2}s", t0.elapsed().as_secs_f64()); }
 
-    eprintln!("[2/2] Running deterministic MC...");
+    if !json_output { eprintln!("[2/2] Running deterministic MC..."); }
     let hero_2s = two_card_subsets(&canonical);
-    let remaining: Vec<u8> = (0..52u8).filter(|c| !canonical.contains(c)).collect();
+    let remaining: Vec<u8> = (0..52u8).filter(|c| !excluded.contains(c)).collect();
 
     let num_threads = num_cpus();
     let chunk = (trials as usize + num_threads - 1) / num_threads;
 
-    let mc_equity: f64 = thread::scope(|s| {
+    let (mc_equity, total_wins_f, total_count_u): (f64, f64, u64) = thread::scope(|s| {
         let handles: Vec<_> = (0..num_threads).map(|t| {
             let table_ref = &table;
             let hero_2s_ref = &hero_2s;
             let remaining_ref = &remaining;
+            let board_cards_ref = &board_cards;
+            let board_fill_n = board_to_fill;
             s.spawn(move || {
                 let start = t * chunk;
                 let end = ((t + 1) * chunk).min(trials as usize);
@@ -1141,16 +1228,23 @@ fn run_equity(args: &[String]) {
                 let mut wins = 0.0f64;
                 let mut total = 0u64;
                 for _ in start..end {
-                    let board = sample_villain(remaining_ref, &mut rng);
-                    let mut sorted_board = board;
-                    sorted_board.sort();
-                    let board_3s = three_card_subsets(&sorted_board);
+                    let sampled_extra = sample_n(remaining_ref, board_fill_n + 5, &mut rng);
+                    let mut full_board = Vec::with_capacity(5);
+                    for &c in board_cards_ref { full_board.push(c); }
+                    for i in 0..board_fill_n { full_board.push(sampled_extra[i]); }
+                    full_board.sort();
+                    let board_3s = three_card_subsets_from_slice(&full_board);
                     let hero_rank = eval_best(hero_2s_ref, &board_3s, table_ref);
 
-                    let pool: Vec<u8> = remaining_ref.iter()
-                        .copied().filter(|c| !board.contains(c)).collect();
-                    let villain = sample_villain(&pool, &mut rng);
-                    let villain_2s = two_card_subsets(&villain);
+                    let mut villain_arr = [0u8; 5];
+                    for i in 0..5 { villain_arr[i] = sampled_extra[board_fill_n + i]; }
+                    let mut valid = true;
+                    for &vc in &villain_arr {
+                        if full_board.contains(&vc) { valid = false; break; }
+                    }
+                    if !valid { continue; }
+                    villain_arr.sort();
+                    let villain_2s = two_card_subsets(&villain_arr);
                     let villain_rank = eval_best(&villain_2s, &board_3s, table_ref);
 
                     if hero_rank < villain_rank { wins += 1.0; }
@@ -1160,22 +1254,34 @@ fn run_equity(args: &[String]) {
                 (wins, total)
             })
         }).collect();
-        let (total_wins, total_count): (f64, u64) = handles.into_iter()
+        let (tw, tc): (f64, u64) = handles.into_iter()
             .map(|h| h.join().unwrap())
             .fold((0.0, 0), |(w, c), (w2, c2)| (w + w2, c + c2));
-        total_wins / total_count as f64
+        (tw / tc as f64, tw, tc)
     });
 
     let elapsed = t0.elapsed().as_secs_f64();
-    eprintln!();
-    eprintln!("╔══════════════════════════════════════════════╗");
-    eprintln!("║              Result                          ║");
-    eprintln!("╚══════════════════════════════════════════════╝");
-    eprintln!("  Hand:    {}", card_names.join(""));
-    eprintln!("  Equity:  {:.3}%", mc_equity * 100.0);
-    eprintln!("  Trials:  {}", trials);
-    eprintln!("  Seed:    {}", seed);
-    eprintln!("  Time:    {:.1}s", elapsed);
+    let elapsed_ms = (elapsed * 1000.0) as u64;
+    let wins_int = total_wins_f as u64;
+    let ties_approx = ((total_wins_f - wins_int as f64) * 2.0) as u64;
+    let losses = total_count_u - wins_int - ties_approx;
+
+    if json_output {
+        println!(
+            "{{\"ok\":true,\"equity\":{:.6},\"equityPct\":{:.4},\"wins\":{},\"ties\":{},\"losses\":{},\"trials\":{},\"seed\":{},\"elapsedMs\":{}}}",
+            mc_equity, mc_equity * 100.0, wins_int, ties_approx, losses, total_count_u, seed, elapsed_ms
+        );
+    } else {
+        eprintln!();
+        eprintln!("╔══════════════════════════════════════════════╗");
+        eprintln!("║              Result                          ║");
+        eprintln!("╚══════════════════════════════════════════════╝");
+        eprintln!("  Hand:    {}", card_names.join(""));
+        eprintln!("  Equity:  {:.3}%", mc_equity * 100.0);
+        eprintln!("  Trials:  {}", total_count_u);
+        eprintln!("  Seed:    {}", seed);
+        eprintln!("  Time:    {:.1}s", elapsed);
+    }
 }
 
 fn main() {
