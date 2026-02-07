@@ -1,0 +1,101 @@
+TASK: Unify villain percent ranges + show hand count + force VPS compute using the latest rank file
+
+We must remove all ambiguity between “Top 10%” and “10%”.
+From now on, the ONLY supported percent-range input format is:
+
+  N%   (examples: 1%, 3%, 5%, 10%, 20%, 100%)
+
+We will NOT support "topN%", "Top 10", etc. Remove those labels entirely from UI.
+
+IMPORTANT: All equity and breakdown computations must use the latest rank file produced on the VPS (the 9-hour precompute). Replit must only proxy to VPS; no heavy compute on Replit.
+
+--------------------------------------------------------------------
+1) Range format rules (backend + frontend)
+--------------------------------------------------------------------
+A) Villain input parsing must accept:
+- "100%" (full range)
+- "N%" where N is a number (integer or decimal), 0 < N <= 100
+
+Reject any "topN%" strings. If they appear, treat it as an error and instruct user to use "N%".
+
+B) Normalize internally:
+- If villain is "10%" => rangePercent = 10
+- If villain is "100%" => full range (no restriction)
+
+No separate “Top 10%” concept exists anymore.
+
+--------------------------------------------------------------------
+2) Show number of hands/combos for N% (like PPT does)
+--------------------------------------------------------------------
+We must display how many hands/combos are included for the chosen percent.
+
+We are using the FULL 5-card PLO combo universe:
+  TOTAL_COMBOS = 2,598,960
+
+So:
+  combosCount = round(TOTAL_COMBOS * (N / 100))
+
+Examples:
+- 10% => 259,896 combos
+- 1%  => 25,990 combos (rounded)
+- 20% => 519,792 combos
+
+UI requirement:
+- When villain is "N%", show a badge/label next to Player 2:
+  “{combosCount} combos”
+- This must appear exactly like in PPT (screenshot reference).
+
+Also ensure the same count is used everywhere (equity results header, breakdown panel, etc).
+
+--------------------------------------------------------------------
+3) Always use the latest VPS rank file
+--------------------------------------------------------------------
+We have a fresh rank file computed on VPS (9 hours). This file must be used for ALL percent-range sampling.
+
+Backend requirements:
+- Add env var RANK_FILE_PATH, default to:
+  public/plo5_rankings_prod.bin  (or the exact latest file name we deploy)
+- When villain is "N%" (N < 100):
+  - Pass --villain-range "{N}%"
+  - Pass --rank-file "${RANK_FILE_PATH}"
+  - Rust must sample villain hands ONLY from the top N% of the FULL 2,598,960 universe
+  - Blockers must be applied (villain cannot overlap hero/board).
+
+If rank file missing => reject request with a clear error:
+  "Rank file not found on engine server. Percent ranges require the latest rank file."
+
+--------------------------------------------------------------------
+4) Force ALL compute to run on VPS (no local compute)
+--------------------------------------------------------------------
+We want production behavior:
+- Equity and EQ Breakdown must run on VPS only.
+
+Backend:
+- If EQUITY_ENGINE_URL is set, ALWAYS forward requests to VPS.
+- Add a hard guard:
+  If process.env.FORCE_REMOTE_EQUITY === "true" and EQUITY_ENGINE_URL is not set -> return error and do NOT spawn local binary.
+
+Frontend:
+- Show badge at top: “Engine: VPS” if remote mode is active.
+- Never silently fall back to local compute when FORCE_REMOTE_EQUITY=true.
+
+--------------------------------------------------------------------
+5) UI cleanup
+--------------------------------------------------------------------
+Remove all “Top 1% / Top 3% / Top 5% / Top 10% / Top 20%” buttons and any “topN%” labels.
+
+Instead, provide quick buttons that fill Player 2 with:
+  100%, 20%, 10%, 5%, 3%, 1%
+
+But the value inserted is exactly "10%", not "top10%".
+
+--------------------------------------------------------------------
+Acceptance criteria
+--------------------------------------------------------------------
+1) There is no difference between “Top 10” and “10%” because “Top 10” no longer exists. Only "10%" exists.
+2) When Player 2 = "10%", UI shows "259,896 combos" (based on TOTAL_COMBOS=2,598,960).
+3) Percent ranges always use the latest VPS rank file; no canonical-hand shortcut.
+4) All equity and breakdown computations run on VPS when FORCE_REMOTE_EQUITY=true.
+5) Results match PPT-style behavior within Monte Carlo error.
+
+Implement these changes end-to-end (UI + server + engine call flags).

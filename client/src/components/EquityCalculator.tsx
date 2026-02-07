@@ -99,6 +99,9 @@ async function callServerEquity(
   seed?: number;
   elapsedMs?: number;
   villainRange?: string;
+  engineMode?: "remote" | "local";
+  engineElapsedMs?: number;
+  threadsUsed?: number;
   error?: string;
 }> {
   const res = await fetch('/api/equity', {
@@ -127,7 +130,7 @@ const VILLAIN_RANGE_PRESETS = [
 
 function isVillainRangePattern(s: string): boolean {
   const t = s.trim().toLowerCase();
-  return t === '100%' || /^top\s*\d+(\.\d+)?%$/.test(t);
+  return t === '100%' || /^(?:top\s*)?\d+(\.\d+)?%$/.test(t);
 }
 
 const ALL_RANKS = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'];
@@ -305,6 +308,9 @@ export function EquityCalculator() {
   const [isBenchmarking, setIsBenchmarking] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const [usedServer, setUsedServer] = useState(false);
+  const [engineMode, setEngineMode] = useState<"remote" | "local" | null>(null);
+  const [engineElapsedMs, setEngineElapsedMs] = useState<number | null>(null);
+  const [threadsUsed, setThreadsUsed] = useState<number | null>(null);
   const [villainRangeUsed, setVillainRangeUsed] = useState<string | null>(null);
   const [breakdownEnabled, setBreakdownEnabled] = useState(false);
   const [breakdownResult, setBreakdownResult] = useState<BreakdownResult | null>(null);
@@ -444,6 +450,9 @@ export function EquityCalculator() {
     setBenchmarkResult(null);
     setServerError(null);
     setUsedServer(false);
+    setEngineMode(null);
+    setEngineElapsedMs(null);
+    setThreadsUsed(null);
     setVillainRangeUsed(null);
     setBreakdownResult(null);
     setBreakdownError(null);
