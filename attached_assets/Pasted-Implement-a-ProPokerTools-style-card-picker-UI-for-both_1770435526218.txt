@@ -1,0 +1,56 @@
+Implement a ProPokerTools-style card picker UI for both Board and Player hands (PLO5).
+
+GOAL
+Users must be able to select cards by clicking a 52-card grid (like PPT), not only by typing text.
+Typing must still work; picker and text input must stay in sync.
+
+SCOPE
+1) Board card picker:
+- Board has 0..5 cards (preflop/flop/turn/river).
+- Next empty board slot is “active”. Clicking a card fills the active slot.
+- Clicking an already-filled board card removes it.
+- Show the 5 board slots as small card chips; each slot clickable.
+- Provide a “Clear board” button.
+
+2) Player hand picker (PLO5):
+- Each player has up to 5 hole cards (hero is 5 cards; ranges are also allowed).
+- If the player input is a specific hand (5 cards), show 5 slots like board.
+- Clicking fills next empty hand slot. Clicking a filled slot removes that card.
+- If the player input is a range string (e.g., "top10%" or "AA,KK+"), do NOT show hand slots; show the text input as today.
+
+3) Shared deck / blockers:
+- A card selected on board or any player becomes unavailable (disabled) everywhere else.
+- Disabled cards must appear greyed out and not clickable.
+- If user removes a card, it becomes available again.
+- Prevent duplicates and overlaps at UI level.
+
+4) Modal / Popover picker:
+- Clicking on the board area or a “Pick cards” icon opens a modal (or popover) with a 52-card grid.
+- Grid layout: 4 suit rows (♠ ♥ ♦ ♣) and 13 ranks (A K Q J T 9 ... 2) similar to PPT.
+- Each card cell shows rank + suit color, and is clickable.
+- Modal has: Clear, OK, Cancel.
+  - OK applies changes.
+  - Cancel discards changes.
+- Optional: allow selecting directly without OK (live apply), but still keep a Cancel option if possible.
+
+5) Sync with text inputs:
+- Board text input must update when cards are chosen (e.g., "AsKd3c").
+- If user types in the board input, the picker must reflect it (parse + normalize).
+- Same for player hand inputs.
+- Support shorthand board like "333" => auto-normalize to "3h3d3c" (from previous fix).
+
+6) UX details:
+- Add small “grid” button next to Board and each Player that opens the picker.
+- Add keyboard support: Backspace removes last selected card in the active area.
+- On desktop: modal centered; on mobile: bottom sheet.
+
+TECH
+- Add a reusable <CardPickerModal> component.
+- Add a shared card parsing/formatting helper (client side) so the UI always displays canonical card strings.
+- Do NOT change equity math or API; this is UI-only + parsing/normalization.
+
+ACCEPTANCE TESTS
+- User can build board by clicking 5 cards; text input shows correct string; no overlaps allowed.
+- User can build hero 5-card hand by clicking; cards disabled if already on board.
+- Switching between typing and clicking stays consistent.
+- Range input like "top10%" keeps text mode (no card slots/picker for that player).
