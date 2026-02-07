@@ -1163,16 +1163,16 @@ fn load_rank_index(path: &str) -> Vec<u32> {
 fn parse_villain_range(s: &str) -> Option<f64> {
     let s = s.trim().to_lowercase();
     if s == "100%" { return Some(100.0); }
-    let s = s.strip_prefix("top").unwrap_or(&s);
-    let s = s.strip_suffix('%').unwrap_or(s);
+    if s.starts_with("top") { return None; }
+    let s = s.strip_suffix('%')?;
     s.parse::<f64>().ok().filter(|&v| v > 0.0 && v <= 100.0)
 }
 
 fn run_equity(args: &[String]) {
     let hand_str = parse_flag(args, "--hand").unwrap_or_else(|| {
-        eprintln!("Usage: plo5_ranker equity --hand <hand> [--board <cards>] [--dead <cards>] [--trials N] [--seed S] [--json] [--villain-range 100%|topN%] [--rank-file path]");
+        eprintln!("Usage: plo5_ranker equity --hand <hand> [--board <cards>] [--dead <cards>] [--trials N] [--seed S] [--json] [--villain-range 100%|N%] [--rank-file path]");
         eprintln!("Example: plo5_ranker equity --hand AcAdKhQh5s --trials 600000 --seed 12345 --json");
-        eprintln!("Example: plo5_ranker equity --hand AcAdKhQh5s --villain-range top10% --rank-file rank_index_all_2598960.u32 --json");
+        eprintln!("Example: plo5_ranker equity --hand AcAdKhQh5s --villain-range 10% --rank-file rank_index_all_2598960.u32 --json");
         std::process::exit(1);
     });
     let trials: u64 = parse_flag(args, "--trials")
@@ -1188,10 +1188,10 @@ fn run_equity(args: &[String]) {
 
     let villain_pct = parse_villain_range(&villain_range_str).unwrap_or_else(|| {
         if json_output {
-            println!("{{\"ok\":false,\"error\":\"Invalid villain range: '{}'. Use 100% or topN% (e.g. top10%)\"}}", villain_range_str);
+            println!("{{\"ok\":false,\"error\":\"Invalid villain range: '{}'. Use N% (e.g. 10%, 20%, 100%)\"}}", villain_range_str);
             std::process::exit(0);
         }
-        eprintln!("Invalid villain range: '{}'", villain_range_str);
+        eprintln!("Invalid villain range: '{}'. Use N% (e.g. 10%, 20%, 100%)", villain_range_str);
         std::process::exit(1);
     });
     let is_range_restricted = villain_pct < 100.0;
@@ -1540,7 +1540,7 @@ fn run_precompute_all(args: &[String]) {
 
 fn run_breakdown(args: &[String]) {
     let hand_str = parse_flag(args, "--hand").unwrap_or_else(|| {
-        eprintln!("Usage: plo5_ranker breakdown --hand <hand> --board <3or4cards> [--dead <cards>] [--trials-budget N] [--seed S] [--villain-range 100%|topN%] [--rank-file path] [--json]");
+        eprintln!("Usage: plo5_ranker breakdown --hand <hand> --board <3or4cards> [--dead <cards>] [--trials-budget N] [--seed S] [--villain-range 100%|N%] [--rank-file path] [--json]");
         std::process::exit(1);
     });
     let trials_budget: u64 = parse_flag(args, "--trials-budget")
@@ -1555,10 +1555,10 @@ fn run_breakdown(args: &[String]) {
 
     let villain_pct = parse_villain_range(&villain_range_str).unwrap_or_else(|| {
         if json_output {
-            println!("{{\"ok\":false,\"error\":\"Invalid villain range: '{}'\"}}", villain_range_str);
+            println!("{{\"ok\":false,\"error\":\"Invalid villain range: '{}'. Use N% (e.g. 10%, 20%, 100%)\"}}", villain_range_str);
             std::process::exit(0);
         }
-        eprintln!("Invalid villain range: '{}'", villain_range_str);
+        eprintln!("Invalid villain range: '{}'. Use N% (e.g. 10%, 20%, 100%)", villain_range_str);
         std::process::exit(1);
     });
     let is_range_restricted = villain_pct < 100.0;
