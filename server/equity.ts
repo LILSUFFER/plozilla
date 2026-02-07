@@ -1,7 +1,9 @@
 import { spawn, type ChildProcess } from "child_process";
 import path from "path";
+import fs from "fs";
 
 const BINARY_PATH = path.resolve("engine-rust/target/release/plo5_ranker");
+const RANK_FILE = path.resolve("public/rank_index_all_2598960.u32");
 const MAX_CONCURRENT = 1;
 const TIMEOUT_MS = 120_000;
 const CACHE_TTL_MS = 60 * 60 * 1000;
@@ -10,6 +12,19 @@ const MAX_CACHE_SIZE = 500;
 const REMOTE_URL = process.env.EQUITY_ENGINE_URL || "";
 
 let activeJobs = 0;
+let rankFileAvailable: boolean | null = null;
+
+function isRankFileAvailable(): boolean {
+  if (rankFileAvailable === null) {
+    try {
+      const stat = fs.statSync(RANK_FILE);
+      rankFileAvailable = stat.size === 2598960 * 4;
+    } catch {
+      rankFileAvailable = false;
+    }
+  }
+  return rankFileAvailable;
+}
 
 interface EquityResult {
   ok: true;
@@ -21,6 +36,7 @@ interface EquityResult {
   trials: number;
   seed: number;
   elapsedMs: number;
+  villainRange?: string;
 }
 
 interface EquityError {
@@ -70,7 +86,18 @@ export interface EquityRequest {
   seed?: number;
 }
 
-const VALID_TRIALS = [100000, 300000, 600000, 2000000];
+const VILLAIN_PATTERN = /^(100%|top\s*\d+(\.\d+)?%)$/i;
+
+function parseVillainRange(v: string): { valid: boolean; pct: number; isRange: boolean } {
+  const s = v.trim().toLowerCase();
+  if (s === "100%") return { valid: true, pct: 100, isRange: false };
+  const m = s.match(/^top\s*(\d+(?:\.\d+)?)%$/);
+  if (m) {
+    const pct = parseFloat(m[1]);
+    if (pct > 0 && pct <= 100) return { valid: true, pct, isRange: true };
+  }
+  return { valid: false, pct: 0, isRange: false };
+}
 
 function validateRequest(req: EquityRequest): string | null {
   if (!req.hero || typeof req.hero !== "string") {
@@ -88,8 +115,15 @@ function validateRequest(req: EquityRequest): string | null {
     }
   }
 
-  if (!req.villain || req.villain !== "100%") {
-    return "Currently only villain='100%' is supported";
+  if (!req.villain || typeof req.villain !== "string") {
+    return "Missing or invalid 'villain' field";
+  }
+  const vr = parseVillainRange(req.villain);
+  if (!vr.valid) {
+    return `Invalid villain range: '${req.villain}'. Use '100%' or 'topN%' (e.g. 'top10%')`;
+  }
+  if (vr.isRange && !isRankFileAvailable()) {
+    return "Rank index file not available. Range-based villain requires precomputed data.";
   }
 
   if (req.board && req.board.trim()) {
@@ -155,8 +189,9 @@ export async function runEquity(req: EquityRequest): Promise<EquityResponse> {
   const seed = req.seed ?? 12345;
   const board = req.board?.trim() || "";
   const dead = req.dead?.trim() || "";
+  const villain = req.villain.trim();
 
-  const key = cacheKey(req.hero, req.villain, board, dead, trials, seed);
+  const key = cacheKey(req.hero, villain, board, dead, trials, seed);
   const cached = cache.get(key);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
     return cached.result;
@@ -170,9 +205,9 @@ export async function runEquity(req: EquityRequest): Promise<EquityResponse> {
   try {
     let result: EquityResponse;
     if (REMOTE_URL) {
-      result = await remoteEquity(req.hero, req.villain, board, dead, trials, seed);
+      result = await remoteEquity(req.hero, villain, board, dead, trials, seed);
     } else {
-      result = await spawnEquity(req.hero, board, dead, trials, seed);
+      result = await spawnEquity(req.hero, villain, board, dead, trials, seed);
     }
     if (result.ok) {
       pruneCache();
@@ -216,19 +251,27 @@ async function remoteEquity(
 
 function spawnEquity(
   hero: string,
+  villain: string,
   board: string,
   dead: string,
   trials: number,
   seed: number
 ): Promise<EquityResponse> {
   return new Promise((resolve) => {
+    const vr = parseVillainRange(villain);
+    const villainRangeArg = vr.isRange ? `top${vr.pct}%` : "100%";
+
     const args = [
       "equity",
       "--hand", hero,
       "--trials", String(trials),
       "--seed", String(seed),
+      "--villain-range", villainRangeArg,
       "--json",
     ];
+    if (vr.isRange) {
+      args.push("--rank-file", RANK_FILE);
+    }
     if (board) {
       args.push("--board", board);
     }
@@ -313,5 +356,6 @@ export function getEquityCacheStats() {
     activeJobs,
     maxConcurrent: MAX_CONCURRENT,
     mode: REMOTE_URL ? "remote" : "local",
+    rankFileAvailable: isRankFileAvailable(),
   };
 }

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::env;
 use std::fs::{self, File};
-use std::io::{BufWriter, Write};
+use std::io::{BufReader, BufWriter, Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -1143,10 +1143,36 @@ fn print_bin_info(path: &str) {
     eprintln!("  File size:       {} bytes ({:.2} MB)", data.len(), data.len() as f64 / 1e6);
 }
 
+fn load_rank_index(path: &str) -> Vec<u32> {
+    let data = fs::read(path).unwrap_or_else(|e| {
+        eprintln!("Cannot read rank index file '{}': {}", path, e);
+        std::process::exit(1);
+    });
+    let expected = 2598960 * 4;
+    if data.len() != expected {
+        eprintln!("Rank index file size mismatch: got {} bytes, expected {}", data.len(), expected);
+        std::process::exit(1);
+    }
+    let mut indices = vec![0u32; 2598960];
+    for i in 0..2598960 {
+        indices[i] = u32::from_le_bytes(data[i*4..(i+1)*4].try_into().unwrap());
+    }
+    indices
+}
+
+fn parse_villain_range(s: &str) -> Option<f64> {
+    let s = s.trim().to_lowercase();
+    if s == "100%" { return Some(100.0); }
+    let s = s.strip_prefix("top").unwrap_or(&s);
+    let s = s.strip_suffix('%').unwrap_or(s);
+    s.parse::<f64>().ok().filter(|&v| v > 0.0 && v <= 100.0)
+}
+
 fn run_equity(args: &[String]) {
     let hand_str = parse_flag(args, "--hand").unwrap_or_else(|| {
-        eprintln!("Usage: plo5_ranker equity --hand <hand> [--board <cards>] [--dead <cards>] [--trials N] [--seed S] [--json]");
+        eprintln!("Usage: plo5_ranker equity --hand <hand> [--board <cards>] [--dead <cards>] [--trials N] [--seed S] [--json] [--villain-range 100%|topN%] [--rank-file path]");
         eprintln!("Example: plo5_ranker equity --hand AcAdKhQh5s --trials 600000 --seed 12345 --json");
+        eprintln!("Example: plo5_ranker equity --hand AcAdKhQh5s --villain-range top10% --rank-file rank_index_all_2598960.u32 --json");
         std::process::exit(1);
     });
     let trials: u64 = parse_flag(args, "--trials")
@@ -1157,6 +1183,18 @@ fn run_equity(args: &[String]) {
 
     let board_str = parse_flag(args, "--board").unwrap_or_default();
     let dead_str = parse_flag(args, "--dead").unwrap_or_default();
+    let villain_range_str = parse_flag(args, "--villain-range").unwrap_or_else(|| "100%".into());
+    let rank_file = parse_flag(args, "--rank-file").unwrap_or_else(|| "public/rank_index_all_2598960.u32".into());
+
+    let villain_pct = parse_villain_range(&villain_range_str).unwrap_or_else(|| {
+        if json_output {
+            println!("{{\"ok\":false,\"error\":\"Invalid villain range: '{}'. Use 100% or topN% (e.g. top10%)\"}}", villain_range_str);
+            std::process::exit(0);
+        }
+        eprintln!("Invalid villain range: '{}'", villain_range_str);
+        std::process::exit(1);
+    });
+    let is_range_restricted = villain_pct < 100.0;
 
     let hand = parse_hand(&hand_str).unwrap_or_else(|| {
         if json_output {
@@ -1198,6 +1236,18 @@ fn run_equity(args: &[String]) {
     let card_names: Vec<String> = canonical.iter().map(|&c| card_name(c)).collect();
     let board_to_fill = 5 - board_cards.len();
 
+    let rank_pool: Vec<[u8; 5]> = if is_range_restricted {
+        let rank_index = load_rank_index(&rank_file);
+        let top_count = ((villain_pct / 100.0) * 2598960.0).ceil() as usize;
+        let top_count = top_count.min(2598960);
+        if !json_output {
+            eprintln!("  Villain range: top {:.1}% ({} of 2,598,960 hands)", villain_pct, top_count);
+        }
+        rank_index[..top_count].iter().map(|&idx| index_to_hand(idx)).collect()
+    } else {
+        Vec::new()
+    };
+
     if !json_output {
         eprintln!("╔══════════════════════════════════════════════╗");
         eprintln!("║       PLO5 Single-Hand Equity (PPT-style)    ║");
@@ -1211,6 +1261,7 @@ fn run_equity(args: &[String]) {
             let dn: Vec<String> = dead_cards.iter().map(|&c| card_name(c)).collect();
             eprintln!("  Dead:    {}", dn.join(""));
         }
+        eprintln!("  Villain: {}", villain_range_str);
         eprintln!("  Trials:  {}", trials);
         eprintln!("  Seed:    {}", seed);
         eprintln!();
@@ -1223,6 +1274,7 @@ fn run_equity(args: &[String]) {
 
     if !json_output { eprintln!("[2/2] Running deterministic MC..."); }
     let hero_2s = two_card_subsets(&hand);
+    let hero_bm = card_bitmap(&hand);
     let remaining: Vec<u8> = (0..52u8).filter(|c| !excluded.contains(c)).collect();
 
     let num_threads = num_cpus();
@@ -1235,6 +1287,8 @@ fn run_equity(args: &[String]) {
             let remaining_ref = &remaining;
             let board_cards_ref = &board_cards;
             let board_fill_n = board_to_fill;
+            let rank_pool_ref = &rank_pool;
+            let use_range = is_range_restricted;
             s.spawn(move || {
                 let start = t * chunk;
                 let end = ((t + 1) * chunk).min(trials as usize);
@@ -1244,22 +1298,39 @@ fn run_equity(args: &[String]) {
                 let mut wins = 0.0f64;
                 let mut total = 0u64;
                 for _ in start..end {
-                    let sampled_extra = sample_n(remaining_ref, board_fill_n + 5, &mut rng);
+                    let board_sample = sample_n(remaining_ref, board_fill_n, &mut rng);
                     let mut full_board = Vec::with_capacity(5);
                     for &c in board_cards_ref { full_board.push(c); }
-                    for i in 0..board_fill_n { full_board.push(sampled_extra[i]); }
+                    for i in 0..board_fill_n { full_board.push(board_sample[i]); }
                     full_board.sort();
+                    let board_bm = card_bitmap(&full_board);
                     let board_3s = three_card_subsets_from_slice(&full_board);
                     let hero_rank = eval_best(hero_2s_ref, &board_3s, table_ref);
 
-                    let mut villain_arr = [0u8; 5];
-                    for i in 0..5 { villain_arr[i] = sampled_extra[board_fill_n + i]; }
-                    let mut valid = true;
-                    for &vc in &villain_arr {
-                        if full_board.contains(&vc) { valid = false; break; }
+                    let villain_arr: [u8; 5];
+                    if use_range {
+                        let pool_len = rank_pool_ref.len();
+                        let mut found = false;
+                        let mut attempt_villain = [0u8; 5];
+                        for _ in 0..200 {
+                            let vi = rng.gen_range(pool_len);
+                            let cand = rank_pool_ref[vi];
+                            let cand_bm = card_bitmap(&cand);
+                            if cand_bm & hero_bm != 0 { continue; }
+                            if cand_bm & board_bm != 0 { continue; }
+                            attempt_villain = cand;
+                            found = true;
+                            break;
+                        }
+                        if !found { continue; }
+                        villain_arr = attempt_villain;
+                    } else {
+                        let pool: Vec<u8> = remaining_ref.iter()
+                            .filter(|&&c| board_bm & (1u64 << (c as u64)) == 0)
+                            .copied().collect();
+                        villain_arr = sample_villain(&pool, &mut rng);
                     }
-                    if !valid { continue; }
-                    villain_arr.sort();
+
                     let villain_2s = two_card_subsets(&villain_arr);
                     let villain_rank = eval_best(&villain_2s, &board_3s, table_ref);
 
@@ -1284,8 +1355,8 @@ fn run_equity(args: &[String]) {
 
     if json_output {
         println!(
-            "{{\"ok\":true,\"equity\":{:.6},\"equityPct\":{:.4},\"wins\":{},\"ties\":{},\"losses\":{},\"trials\":{},\"seed\":{},\"elapsedMs\":{}}}",
-            mc_equity, mc_equity * 100.0, wins_int, ties_approx, losses, total_count_u, seed, elapsed_ms
+            "{{\"ok\":true,\"equity\":{:.6},\"equityPct\":{:.4},\"wins\":{},\"ties\":{},\"losses\":{},\"trials\":{},\"seed\":{},\"elapsedMs\":{},\"villainRange\":\"{}\"}}",
+            mc_equity, mc_equity * 100.0, wins_int, ties_approx, losses, total_count_u, seed, elapsed_ms, villain_range_str
         );
     } else {
         eprintln!();
@@ -1293,6 +1364,7 @@ fn run_equity(args: &[String]) {
         eprintln!("║              Result                          ║");
         eprintln!("╚══════════════════════════════════════════════╝");
         eprintln!("  Hand:    {}", card_names.join(""));
+        eprintln!("  Villain: {}", villain_range_str);
         eprintln!("  Equity:  {:.3}%", mc_equity * 100.0);
         eprintln!("  Trials:  {}", total_count_u);
         eprintln!("  Seed:    {}", seed);
