@@ -507,15 +507,14 @@ function countPLO5Pattern(pattern: string): number {
 
 function generateSampleFromConstraint(
   constraint: PatternConstraint,
-  excludeCards: Set<string>
+  excludeCards: Set<string>,
+  rng: () => number = Math.random
 ): Card[] | null {
-  // For simple rank requirements without suit constraints, use rejection sampling
-  // for correct probability distribution
   if (constraint.rankRequirements.size > 0 && 
       constraint.fixedCards.length === 0 && 
       !constraint.hasSuitConstraint &&
       constraint.noPairRanks.size === 0) {
-    return generateWithRejectionSampling(constraint.rankRequirements, excludeCards);
+    return generateWithRejectionSampling(constraint.rankRequirements, excludeCards, rng);
   }
   
   const hand: Card[] = [];
@@ -532,7 +531,7 @@ function generateSampleFromConstraint(
   if (constraint.hasSuitConstraint && constraint.suitPattern) {
     const pattern = constraint.suitPattern.toLowerCase();
     const vars = Array.from(new Set(pattern.split('')));
-    const shuffledSuits = [...SUITS].sort(() => Math.random() - 0.5);
+    const shuffledSuits = [...SUITS].sort(() => rng() - 0.5);
     vars.forEach((v, i) => {
       if (i < shuffledSuits.length) {
         suitAssignments.set(v, shuffledSuits[i]);
@@ -562,10 +561,10 @@ function generateSampleFromConstraint(
       while (selectedSuits.length < count) {
         const remaining = availableSuits.filter(s => !selectedSuits.includes(s));
         if (remaining.length === 0) return null;
-        selectedSuits.push(remaining[Math.floor(Math.random() * remaining.length)]);
+        selectedSuits.push(remaining[Math.floor(rng() * remaining.length)]);
       }
     } else {
-      const shuffled = [...availableSuits].sort(() => Math.random() - 0.5);
+      const shuffled = [...availableSuits].sort(() => rng() - 0.5);
       selectedSuits = shuffled.slice(0, count);
     }
     
@@ -589,7 +588,7 @@ function generateSampleFromConstraint(
   }
   
   while (hand.length < HAND_SIZE && availableCards.length > 0) {
-    const idx = Math.floor(Math.random() * availableCards.length);
+    const idx = Math.floor(rng() * availableCards.length);
     hand.push(availableCards.splice(idx, 1)[0]);
   }
   
@@ -600,7 +599,8 @@ function generateSampleFromConstraint(
 // For "AA" we need uniform sampling over all hands with 2+ aces
 function generateWithRejectionSampling(
   rankRequirements: Map<string, number>,
-  excludeCards: Set<string>
+  excludeCards: Set<string>,
+  rng: () => number = Math.random
 ): Card[] | null {
   const hand: Card[] = [];
   const used = new Set(excludeCards);
@@ -661,7 +661,7 @@ function generateWithRejectionSampling(
     
     // Weighted random selection of how many rank cards to include
     const totalWeight = weights.reduce((a, b) => a + b, 0);
-    let rand = Math.random() * totalWeight;
+    let rand = rng() * totalWeight;
     let selectedCount = counts[0];
     
     for (let i = 0; i < weights.length; i++) {
@@ -672,10 +672,9 @@ function generateWithRejectionSampling(
       }
     }
     
-    // Fisher-Yates shuffle for the rank cards and pick selectedCount
     const shuffledRank = [...availableRankCards];
     for (let i = shuffledRank.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = Math.floor(rng() * (i + 1));
       [shuffledRank[i], shuffledRank[j]] = [shuffledRank[j], shuffledRank[i]];
     }
     for (let i = 0; i < selectedCount; i++) {
@@ -683,10 +682,9 @@ function generateWithRejectionSampling(
       used.add(cardKey(shuffledRank[i]));
     }
     
-    // Shuffle non-required cards and pick remaining
     const shuffledOther = [...nonRequiredCards];
     for (let i = shuffledOther.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = Math.floor(rng() * (i + 1));
       [shuffledOther[i], shuffledOther[j]] = [shuffledOther[j], shuffledOther[i]];
     }
     const otherNeeded = HAND_SIZE - hand.length;
@@ -697,7 +695,7 @@ function generateWithRejectionSampling(
     // For multiple rank requirements, use simpler approach
     for (const [rank, minCount] of reqEntries) {
       const availableRankCards = availableByRank.get(rank) || [];
-      const shuffled = [...availableRankCards].sort(() => Math.random() - 0.5);
+      const shuffled = [...availableRankCards].sort(() => rng() - 0.5);
       for (let i = 0; i < minCount; i++) {
         hand.push(shuffled[i]);
         used.add(cardKey(shuffled[i]));
@@ -706,7 +704,7 @@ function generateWithRejectionSampling(
     
     // Fill remaining from non-required cards
     const shuffledOther = nonRequiredCards.filter(c => !used.has(cardKey(c)));
-    shuffledOther.sort(() => Math.random() - 0.5);
+    shuffledOther.sort(() => rng() - 0.5);
     while (hand.length < HAND_SIZE && shuffledOther.length > 0) {
       hand.push(shuffledOther.shift()!);
     }
@@ -850,47 +848,29 @@ export function parseRange(input: string): RangeResult {
   };
 }
 
-export function getRandomHandFromRange(hands: Card[][], excludeCards: Set<string>): Card[] | null {
+export function getRandomHandFromRange(hands: Card[][], excludeCards: Set<string>, rng: () => number = Math.random): Card[] | null {
   if (hands.length === 0) return null;
   
-  const baseHand = hands[Math.floor(Math.random() * hands.length)];
-  
-  const result: Card[] = [];
-  const used = new Set(Array.from(excludeCards));
+  const baseHand = hands[Math.floor(rng() * hands.length)];
+  if (baseHand.length !== HAND_SIZE) return null;
   
   for (const card of baseHand) {
-    if (used.has(cardKey(card))) {
+    if (excludeCards.has(cardKey(card))) {
       return null;
     }
-    result.push(card);
-    used.add(cardKey(card));
   }
   
-  const available: Card[] = [];
-  for (const rank of RANKS) {
-    for (const suit of SUITS) {
-      const key = `${rank}${suit}`;
-      if (!used.has(key)) {
-        available.push(createCard(rank, suit));
-      }
-    }
-  }
-  
-  while (result.length < HAND_SIZE && available.length > 0) {
-    const idx = Math.floor(Math.random() * available.length);
-    result.push(available.splice(idx, 1)[0]);
-  }
-  
-  return result.length === HAND_SIZE ? result : null;
+  return baseHand;
 }
 
 export function generateRandomHandFromPattern(
   pattern: string,
-  excludeCards: Set<string>
+  excludeCards: Set<string>,
+  rng: () => number = Math.random
 ): Card[] | null {
   const expanded = expandMacros(pattern);
   const constraint = parsePatternToConstraint(expanded);
-  return generateSampleFromConstraint(constraint, excludeCards);
+  return generateSampleFromConstraint(constraint, excludeCards, rng);
 }
 
 export function filterHandsByExcluded(hands: Card[][], excludeCards: Set<string>): Card[][] {

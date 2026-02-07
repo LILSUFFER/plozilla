@@ -1,10 +1,11 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { type Card } from '@/lib/poker-evaluator';
 import { parseCardsConcat, type PlayerInput, type CalculationResult } from '@/lib/equity-calculator';
 import { calculateEquityFast } from '@/lib/wasm-equity';
 import { getCachedEquity, setCachedEquity, getMemoryCacheSize } from '@/lib/equity-cache';
 import { parseRange, getRandomHandFromRange, generateRandomHandFromPattern } from '@/lib/range-parser';
 import { parseHandHistory, getStreetBoard, getStreetName, type ParsedHandHistory } from '@/lib/hand-history-parser';
+import { mulberry32 } from '@/lib/seeded-rng';
 import { Card as UICard, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,9 +15,52 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { PlayingCard } from './PlayingCard';
 import { CardChips } from './CardChip';
-import { Play, Trash2, Plus, RotateCcw, Calculator, ClipboardPaste } from 'lucide-react';
+import { Play, Trash2, Plus, RotateCcw, Calculator, ClipboardPaste, FlaskConical } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/lib/i18n';
+
+const ALL_RANKS = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'];
+const ALL_SUITS = ['s', 'h', 'd', 'c'];
+
+const FULL_DECK: Card[] = [];
+for (const r of ALL_RANKS) {
+  for (const s of ALL_SUITS) {
+    FULL_DECK.push({ rank: r, suit: s } as Card);
+  }
+}
+
+function cardKey(c: Card): string {
+  return `${c.rank}${c.suit}`;
+}
+
+function buildAvailableDeck(usedKeys: Set<string>): Card[] {
+  const avail: Card[] = [];
+  for (let i = 0; i < FULL_DECK.length; i++) {
+    if (!usedKeys.has(cardKey(FULL_DECK[i]))) {
+      avail.push(FULL_DECK[i]);
+    }
+  }
+  return avail;
+}
+
+function sampleCards(available: Card[], count: number, rng: () => number): Card[] {
+  const arr = [...available];
+  const result: Card[] = [];
+  for (let i = 0; i < count && arr.length > 0; i++) {
+    const idx = Math.floor(rng() * arr.length);
+    result.push(arr[idx]);
+    arr[idx] = arr[arr.length - 1];
+    arr.pop();
+  }
+  return result;
+}
+
+const TRIAL_PRESETS = [
+  { label: 'trialsShort100k', value: 100000 },
+  { label: 'trialsShort300k', value: 300000 },
+  { label: 'trialsShort600k', value: 600000 },
+  { label: 'trialsShort2m', value: 2000000 },
+] as const;
 
 interface PlayerRowProps {
   player: PlayerInput;
@@ -29,28 +73,22 @@ interface PlayerRowProps {
   heroLabel: string;
   playerLabel: string;
   combosLabel: string;
+  need5CardsLabel: string;
 }
 
-function PlayerRow({ player, onInputChange, onRemove, equity, isWinner, disabled, allUsedCards, heroLabel, playerLabel, combosLabel }: PlayerRowProps) {
+function PlayerRow({ player, onInputChange, onRemove, equity, isWinner, disabled, allUsedCards, heroLabel, playerLabel, combosLabel, need5CardsLabel }: PlayerRowProps) {
   const handleChange = (value: string) => {
     onInputChange(player.id, value);
   };
   
   const hasError = player.input.length > 0 && player.cards.length === 0 && !player.isRange;
-  const hasConflict = player.cards.some(c => {
-    const key = `${c.rank}${c.suit}`;
-    let count = 0;
-    for (const card of player.cards) {
-      if (`${card.rank}${card.suit}` === key) count++;
-    }
-    return count > 1;
-  });
+  const hasWrongCount = !player.isRange && player.cards.length > 0 && player.cards.length !== 5;
   
   return (
     <div className={cn(
       'flex items-center gap-2 p-2 rounded-md border transition-all',
       isWinner ? 'border-green-500 bg-green-500/10' : 'border-muted',
-      hasError && 'border-destructive'
+      (hasError || hasWrongCount) && 'border-destructive'
     )}>
       <div className="w-16 text-sm font-medium text-muted-foreground">
         {player.id === 1 ? heroLabel : `${playerLabel} ${player.id}`}
@@ -63,7 +101,7 @@ function PlayerRow({ player, onInputChange, onRemove, equity, isWinner, disabled
           placeholder="AA, AK$s, KK+"
           className={cn(
             'font-mono text-sm',
-            hasError && 'border-destructive'
+            (hasError || hasWrongCount) && 'border-destructive'
           )}
           disabled={disabled}
           data-testid={`input-player-${player.id}`}
@@ -85,6 +123,11 @@ function PlayerRow({ player, onInputChange, onRemove, equity, isWinner, disabled
               />
             ))}
           </>
+        )}
+        {hasWrongCount && (
+          <span className="text-xs text-destructive ml-1" data-testid={`text-need5-${player.id}`}>
+            {need5CardsLabel}
+          </span>
         )}
       </div>
       
@@ -132,14 +175,18 @@ export function EquityCalculator() {
   const [pasteDialogOpen, setPasteDialogOpen] = useState(false);
   const [parsedHistory, setParsedHistory] = useState<ParsedHandHistory | null>(null);
   const [pasteError, setPasteError] = useState<string | null>(null);
+  const [selectedTrials, setSelectedTrials] = useState(600000);
+  const [seedInput, setSeedInput] = useState('12345');
+  const [benchmarkResult, setBenchmarkResult] = useState<string | null>(null);
+  const [isBenchmarking, setIsBenchmarking] = useState(false);
   
   const allUsedCards = new Set<string>();
   for (const card of board) {
-    allUsedCards.add(`${card.rank}${card.suit}`);
+    allUsedCards.add(cardKey(card));
   }
   for (const player of players) {
     for (const card of player.cards) {
-      allUsedCards.add(`${card.rank}${card.suit}`);
+      allUsedCards.add(cardKey(card));
     }
   }
   
@@ -213,6 +260,7 @@ export function EquityCalculator() {
     setResult(null);
     setProgress(0);
     setResetKey(k => k + 1);
+    setBenchmarkResult(null);
   };
   
   const handlePasteHand = async () => {
@@ -289,8 +337,21 @@ export function EquityCalculator() {
     setPasteDialogOpen(false);
   };
   
+  const getSeedValue = (): number | null => {
+    const trimmed = seedInput.trim();
+    if (trimmed === '') return null;
+    const n = parseInt(trimmed, 10);
+    return isNaN(n) ? null : n;
+  };
+  
   const calculate = () => {
-    const validPlayers = players.filter(p => p.cards.length >= 2 || (p.isRange && (p.comboCount || 0) > 0));
+    const hasRanges = players.some(p => p.isRange);
+    
+    const validPlayers = players.filter(p => {
+      if (p.isRange && (p.comboCount || 0) > 0) return true;
+      if (!p.isRange && p.cards.length === 5) return true;
+      return false;
+    });
     if (validPlayers.length < 2) return;
     
     setIsCalculating(true);
@@ -298,12 +359,11 @@ export function EquityCalculator() {
     const start = performance.now();
     const isPreflop = board.length === 0;
     const is2Player = validPlayers.length === 2;
-    const hasRanges = validPlayers.some(p => p.isRange);
     
     if (hasRanges) {
       const runRangeCalculation = async () => {
-        const TARGET_SAMPLES = 600000;
-        const MAX_ATTEMPTS = 2000000;
+        const TARGET_SAMPLES = selectedTrials;
+        const MAX_ATTEMPTS = selectedTrials * 4;
         const BATCH_SIZE = 2000;
         const equityTotals: Record<number, number> = {};
         let totalSamples = 0;
@@ -312,27 +372,10 @@ export function EquityCalculator() {
           equityTotals[p.id] = 0;
         }
         
-        const usedByBoard = new Set(board.map(c => `${c.rank}${c.suit}`));
-        const allRanks = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'];
-        const allSuits = ['s', 'h', 'd', 'c'];
-        const fullDeck: Card[] = [];
-        for (const r of allRanks) {
-          for (const s of allSuits) {
-            fullDeck.push({ rank: r, suit: s } as Card);
-          }
-        }
+        const usedByBoard = new Set(board.map(c => cardKey(c)));
         
-        const generateRandomBoard = (usedCards: Set<string>): Card[] => {
-          const boardCards: Card[] = [...board];
-          while (boardCards.length < 5) {
-            const available = fullDeck.filter(c => !usedCards.has(`${c.rank}${c.suit}`));
-            if (available.length === 0) return [];
-            const randomCard = available[Math.floor(Math.random() * available.length)];
-            boardCards.push(randomCard);
-            usedCards.add(`${randomCard.rank}${randomCard.suit}`);
-          }
-          return boardCards;
-        };
+        const seedVal = getSeedValue();
+        const rng = seedVal !== null ? mulberry32(seedVal) : Math.random;
         
         let attempts = 0;
         while (totalSamples < TARGET_SAMPLES && attempts < MAX_ATTEMPTS) {
@@ -346,42 +389,29 @@ export function EquityCalculator() {
             
             for (const p of validPlayers) {
               if (p.isRange && p.rangePattern) {
-                const hand = generateRandomHandFromPattern(p.rangePattern, usedByBoard);
-                if (!hand) {
+                const hand = generateRandomHandFromPattern(p.rangePattern, usedByBoard, rng);
+                if (!hand || hand.length !== 5) {
                   validSample = false;
                   break;
                 }
                 sampledHands.push(hand);
               } else if (p.isRange && p.rangeHands) {
-                const hand = getRandomHandFromRange(p.rangeHands, usedByBoard);
-                if (!hand) {
+                const hand = getRandomHandFromRange(p.rangeHands, usedByBoard, rng);
+                if (!hand || hand.length !== 5) {
                   validSample = false;
                   break;
                 }
                 sampledHands.push(hand);
               } else {
-                if (p.cards.some(c => usedByBoard.has(`${c.rank}${c.suit}`))) {
+                if (p.cards.length !== 5) {
                   validSample = false;
                   break;
                 }
-                const hand = [...p.cards];
-                const used = new Set(usedByBoard);
-                for (const c of hand) used.add(`${c.rank}${c.suit}`);
-                while (hand.length < 5) {
-                  const available = fullDeck.filter(c => !used.has(`${c.rank}${c.suit}`));
-                  if (available.length === 0) {
-                    validSample = false;
-                    break;
-                  }
-                  const randomCard = available[Math.floor(Math.random() * available.length)];
-                  hand.push(randomCard);
-                  used.add(`${randomCard.rank}${randomCard.suit}`);
-                }
-                if (hand.length < 5) {
+                if (p.cards.some(c => usedByBoard.has(cardKey(c)))) {
                   validSample = false;
                   break;
                 }
-                sampledHands.push(hand);
+                sampledHands.push(p.cards);
               }
             }
             
@@ -391,7 +421,7 @@ export function EquityCalculator() {
             let hasConflict = false;
             for (const hand of sampledHands) {
               for (const c of hand) {
-                const key = `${c.rank}${c.suit}`;
+                const key = cardKey(c);
                 if (allHandCards.has(key)) {
                   hasConflict = true;
                   break;
@@ -403,21 +433,21 @@ export function EquityCalculator() {
             
             if (hasConflict) continue;
             
-            const randomBoard = [...board];
             const usedForBoard = new Set(allHandCards);
-            for (const c of board) usedForBoard.add(`${c.rank}${c.suit}`);
+            for (const c of board) usedForBoard.add(cardKey(c));
             
-            while (randomBoard.length < 5) {
-              const available = fullDeck.filter(c => !usedForBoard.has(`${c.rank}${c.suit}`));
-              if (available.length === 0) break;
-              const randomCard = available[Math.floor(Math.random() * available.length)];
-              randomBoard.push(randomCard);
-              usedForBoard.add(`${randomCard.rank}${randomCard.suit}`);
-            }
-            if (randomBoard.length < 5) continue;
+            const availableForBoard = buildAvailableDeck(usedForBoard);
+            const boardRemaining = 5 - board.length;
             
-            const sampledPlayers: PlayerInput[] = validPlayers.map((p, i) => ({
-              ...p, cards: sampledHands[i], isRange: false
+            if (availableForBoard.length < boardRemaining) continue;
+            
+            const boardFill = sampleCards(availableForBoard, boardRemaining, rng);
+            if (boardFill.length < boardRemaining) continue;
+            
+            const randomBoard = [...board, ...boardFill];
+            
+            const sampledPlayers: PlayerInput[] = validPlayers.map((p, idx) => ({
+              ...p, cards: sampledHands[idx], isRange: false
             }));
             
             const sampleResult = calculateEquityFast(sampledPlayers, randomBoard);
@@ -524,9 +554,69 @@ export function EquityCalculator() {
     }
   };
   
-  const validPlayerCount = players.filter(p => 
-    (p.cards.length >= 2) || (p.isRange && (p.comboCount || 0) > 0)
-  ).length;
+  const runBenchmark = async () => {
+    setIsBenchmarking(true);
+    setBenchmarkResult(null);
+    
+    const BENCH_TRIALS = 200000;
+    const benchHands = [
+      { label: 'JsTh5dTc4c vs 100%', hand: 'JsTh5dTc4c' },
+      { label: '9cTdJhAdAh vs 100%', hand: '9cTdJhAdAh' },
+    ];
+    
+    const lines: string[] = [];
+    
+    for (const bh of benchHands) {
+      const heroCards = parseCardsConcat(bh.hand);
+      if (!heroCards || heroCards.length !== 5) {
+        lines.push(`${bh.label}: parse error`);
+        continue;
+      }
+      
+      const seedVal = getSeedValue() ?? 12345;
+      const rng = mulberry32(seedVal);
+      
+      const usedByHero = new Set(heroCards.map(c => cardKey(c)));
+      let totalEq = 0;
+      let samples = 0;
+      
+      for (let trial = 0; trial < BENCH_TRIALS; trial++) {
+        const available = buildAvailableDeck(usedByHero);
+        const villainAndBoard = sampleCards(available, 10, rng);
+        if (villainAndBoard.length < 10) continue;
+        
+        const villainCards = villainAndBoard.slice(0, 5);
+        const boardCards = villainAndBoard.slice(5, 10);
+        
+        const trialPlayers: PlayerInput[] = [
+          { id: 1, cards: heroCards, input: bh.hand },
+          { id: 2, cards: villainCards, input: '' },
+        ];
+        
+        const res = calculateEquityFast(trialPlayers, boardCards);
+        const heroEq = res.results.find(r => r.playerId === 1);
+        if (heroEq) {
+          totalEq += heroEq.equity;
+          samples++;
+        }
+      }
+      
+      const avgEq = samples > 0 ? (totalEq / samples).toFixed(3) : 'N/A';
+      lines.push(`${bh.label}: ${avgEq}% (${samples} samples, seed=${seedVal})`);
+      
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    
+    setBenchmarkResult(lines.join('\n'));
+    setIsBenchmarking(false);
+  };
+  
+  const hasRanges = players.some(p => p.isRange);
+  const validPlayerCount = players.filter(p => {
+    if (p.isRange && (p.comboCount || 0) > 0) return true;
+    if (!p.isRange && p.cards.length === 5) return true;
+    return false;
+  }).length;
   const isValidBoardSize = board.length === 0 || board.length === 3 || board.length === 4 || board.length === 5;
   const canCalculate = validPlayerCount >= 2 && !isCalculating && isValidBoardSize;
   
@@ -609,11 +699,45 @@ export function EquityCalculator() {
                   heroLabel={t('hero')}
                   playerLabel={t('player')}
                   combosLabel={t('combos')}
+                  need5CardsLabel={t('need5Cards')}
                 />
               );
             })}
           </div>
         </div>
+        
+        {hasRanges && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 flex-wrap">
+              <Label className="text-sm shrink-0">{t('trialsLabel')}:</Label>
+              <div className="flex gap-1">
+                {TRIAL_PRESETS.map(preset => (
+                  <Button
+                    key={preset.value}
+                    variant={selectedTrials === preset.value ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setSelectedTrials(preset.value)}
+                    disabled={isCalculating}
+                    data-testid={`button-trials-${preset.value}`}
+                  >
+                    {t(preset.label)}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <Label className="text-sm shrink-0">{t('seedLabel')}:</Label>
+              <Input
+                value={seedInput}
+                onChange={(e) => setSeedInput(e.target.value)}
+                placeholder={t('seedPlaceholder')}
+                className="font-mono text-sm max-w-[140px]"
+                disabled={isCalculating}
+                data-testid="input-seed"
+              />
+            </div>
+          </div>
+        )}
         
         <div className="flex gap-2 flex-wrap">
           <Button
@@ -643,12 +767,30 @@ export function EquityCalculator() {
             <RotateCcw className="w-4 h-4 mr-1" />
             {t('reset')}
           </Button>
+          <Button
+            variant="outline"
+            onClick={runBenchmark}
+            disabled={isCalculating || isBenchmarking}
+            data-testid="button-benchmark"
+          >
+            <FlaskConical className="w-4 h-4 mr-1" />
+            {isBenchmarking ? t('benchmarkRunning') : t('benchmark')}
+          </Button>
         </div>
         
         {isCalculating && (
           <div className="flex items-center gap-3 text-sm text-muted-foreground">
             <Progress value={progress} className="h-1.5 flex-1 max-w-[200px]" />
             <span className="tabular-nums">{progress.toFixed(0)}%</span>
+          </div>
+        )}
+        
+        {benchmarkResult && !isBenchmarking && (
+          <div className="p-3 rounded-md border bg-muted/30 space-y-1" data-testid="text-benchmark-result">
+            <div className="text-sm font-medium">{t('benchmarkDone')}</div>
+            {benchmarkResult.split('\n').map((line, i) => (
+              <div key={i} className="text-xs font-mono text-muted-foreground">{line}</div>
+            ))}
           </div>
         )}
         
