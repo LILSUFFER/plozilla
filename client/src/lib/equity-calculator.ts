@@ -147,6 +147,8 @@ export interface EquityResult {
   ties: number;
   total: number;
   equity: number;
+  winPct?: number;
+  tiePct?: number;
   bestHand?: HandResult;
 }
 

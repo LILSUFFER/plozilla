@@ -1336,7 +1336,7 @@ fn run_equity(args: &[String]) {
     let num_threads = num_cpus();
     let chunk = (trials as usize + num_threads - 1) / num_threads;
 
-    let (mc_equity, total_wins_f, total_count_u): (f64, f64, u64) = thread::scope(|s| {
+    let (mc_equity, total_wins, total_ties, total_count): (f64, u64, u64, u64) = thread::scope(|s| {
         let handles: Vec<_> = (0..num_threads).map(|t| {
             let table_ref = &table;
             let hero_2s_ref = &hero_2s;
@@ -1352,7 +1352,8 @@ fn run_equity(args: &[String]) {
                 let mut rng = Xorshift64::new(
                     mix_seed(seed.wrapping_add(t as u64))
                 );
-                let mut wins = 0.0f64;
+                let mut win_count = 0u64;
+                let mut tie_count = 0u64;
                 let mut total = 0u64;
                 for _ in start..end {
                     if use_range {
@@ -1384,8 +1385,8 @@ fn run_equity(args: &[String]) {
                         let hero_rank = eval_best(hero_2s_ref, &board_3s, table_ref);
                         let villain_2s = two_card_subsets(&villain_arr);
                         let villain_rank = eval_best(&villain_2s, &board_3s, table_ref);
-                        if hero_rank < villain_rank { wins += 1.0; }
-                        else if hero_rank == villain_rank { wins += 0.5; }
+                        if hero_rank < villain_rank { win_count += 1; }
+                        else if hero_rank == villain_rank { tie_count += 1; }
                         total += 1;
                     } else {
                         let board_sample = sample_n(remaining_ref, board_fill_n, &mut rng);
@@ -1402,25 +1403,31 @@ fn run_equity(args: &[String]) {
                         let villain_arr = sample_villain(&pool, &mut rng);
                         let villain_2s = two_card_subsets(&villain_arr);
                         let villain_rank = eval_best(&villain_2s, &board_3s, table_ref);
-                        if hero_rank < villain_rank { wins += 1.0; }
-                        else if hero_rank == villain_rank { wins += 0.5; }
+                        if hero_rank < villain_rank { win_count += 1; }
+                        else if hero_rank == villain_rank { tie_count += 1; }
                         total += 1;
                     }
                 }
-                (wins, total)
+                (win_count, tie_count, total)
             })
         }).collect();
-        let (tw, tc): (f64, u64) = handles.into_iter()
+        let (tw, tt, tc): (u64, u64, u64) = handles.into_iter()
             .map(|h| h.join().unwrap())
-            .fold((0.0, 0), |(w, c), (w2, c2)| (w + w2, c + c2));
-        (tw / tc as f64, tw, tc)
+            .fold((0, 0, 0), |(w, t, c), (w2, t2, c2)| (w + w2, t + t2, c + c2));
+        let eq = (tw as f64 + 0.5 * tt as f64) / tc as f64;
+        (eq, tw, tt, tc)
     });
 
     let elapsed = t0.elapsed().as_secs_f64();
     let elapsed_ms = (elapsed * 1000.0) as u64;
-    let wins_int = total_wins_f as u64;
-    let ties_approx = ((total_wins_f - wins_int as f64) * 2.0) as u64;
-    let losses = total_count_u - wins_int - ties_approx;
+    let losses = total_count - total_wins - total_ties;
+    let win_pct = total_wins as f64 / total_count as f64 * 100.0;
+    let tie_pct = total_ties as f64 / total_count as f64 * 100.0;
+    let expected_equity = (total_wins as f64 + 0.5 * total_ties as f64) / total_count as f64;
+    let equity_check_delta = (mc_equity - expected_equity).abs();
+    assert!(equity_check_delta < 1e-12,
+        "ASSERTION FAILED: equity({}) != (wins + 0.5*ties)/total({}), delta={}",
+        mc_equity, expected_equity, equity_check_delta);
 
     if json_output {
         let rank_info = if is_range_restricted {
@@ -1431,8 +1438,8 @@ fn run_equity(args: &[String]) {
             String::new()
         };
         println!(
-            "{{\"ok\":true,\"equity\":{:.6},\"equityPct\":{:.4},\"wins\":{},\"ties\":{},\"losses\":{},\"trials\":{},\"seed\":{},\"elapsedMs\":{},\"villainRange\":\"{}\"{}}}",
-            mc_equity, mc_equity * 100.0, wins_int, ties_approx, losses, total_count_u, seed, elapsed_ms, villain_range_str, rank_info
+            "{{\"ok\":true,\"equity\":{:.6},\"equityPct\":{:.4},\"winPct\":{:.4},\"tiePct\":{:.4},\"wins\":{},\"ties\":{},\"losses\":{},\"trials\":{},\"seed\":{},\"elapsedMs\":{},\"villainRange\":\"{}\"{}}}",
+            mc_equity, mc_equity * 100.0, win_pct, tie_pct, total_wins, total_ties, losses, total_count, seed, elapsed_ms, villain_range_str, rank_info
         );
     } else {
         eprintln!();
@@ -1441,8 +1448,10 @@ fn run_equity(args: &[String]) {
         eprintln!("╚══════════════════════════════════════════════╝");
         eprintln!("  Hand:    {}", card_names.join(""));
         eprintln!("  Villain: {}", villain_range_str);
-        eprintln!("  Equity:  {:.3}%", mc_equity * 100.0);
-        eprintln!("  Trials:  {}", total_count_u);
+        eprintln!("  Win%:    {:.4}%", win_pct);
+        eprintln!("  Tie%:    {:.4}%", tie_pct);
+        eprintln!("  Equity:  {:.4}% (= Win + 0.5*Tie)", mc_equity * 100.0);
+        eprintln!("  Trials:  {} (W:{} T:{} L:{})", total_count, total_wins, total_ties, losses);
         eprintln!("  Seed:    {}", seed);
         eprintln!("  Time:    {:.1}s", elapsed);
     }

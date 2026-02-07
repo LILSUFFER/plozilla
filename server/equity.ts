@@ -32,6 +32,8 @@ interface EquityResult {
   ok: true;
   equity: number;
   equityPct: number;
+  winPct: number;
+  tiePct: number;
   wins: number;
   ties: number;
   losses: number;
@@ -409,6 +411,13 @@ function spawnEquity(
         const parsed = JSON.parse(stdout.trim());
         if (parsed.ok) {
           parsed.engineMode = "local";
+          if (parsed.wins !== undefined && parsed.ties !== undefined && parsed.trials > 0) {
+            const expectedEquity = (parsed.wins + 0.5 * parsed.ties) / parsed.trials;
+            const delta = Math.abs(parsed.equity - expectedEquity);
+            if (delta > 1e-9) {
+              console.error(`[equity] ASSERTION: equity(${parsed.equity}) != (wins+0.5*ties)/total(${expectedEquity}), delta=${delta}`);
+            }
+          }
         }
         resolve(parsed as EquityResponse);
       } catch {

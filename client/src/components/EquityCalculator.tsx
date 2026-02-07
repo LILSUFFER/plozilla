@@ -92,6 +92,8 @@ async function callServerEquity(
   ok: boolean;
   equity?: number;
   equityPct?: number;
+  winPct?: number;
+  tiePct?: number;
   wins?: number;
   ties?: number;
   losses?: number;
@@ -639,6 +641,8 @@ export function EquityCalculator() {
                   ties: resp.ties || 0,
                   total: resp.trials || selectedTrials,
                   equity: resp.equityPct,
+                  winPct: resp.winPct,
+                  tiePct: resp.tiePct,
                 },
                 {
                   playerId: validPlayers[1].id,
@@ -646,6 +650,8 @@ export function EquityCalculator() {
                   ties: resp.ties || 0,
                   total: resp.trials || selectedTrials,
                   equity: 100 - resp.equityPct,
+                  winPct: resp.losses !== undefined && resp.trials ? (resp.losses / resp.trials) * 100 : undefined,
+                  tiePct: resp.tiePct,
                 },
               ],
               totalTrials: resp.trials || selectedTrials,
@@ -1472,9 +1478,15 @@ export function EquityCalculator() {
                         {r.equity.toFixed(2)}%
                       </span>
                     </div>
-                    <div className="text-xs text-muted-foreground">
-                      {t('win')}: {r.wins.toLocaleString()} | {t('tie')}: {r.ties.toLocaleString()} | {t('total')}: {r.total.toLocaleString()}
-                    </div>
+                    {r.winPct !== undefined && r.tiePct !== undefined ? (
+                      <div className="text-xs text-muted-foreground font-mono" data-testid={`stats-player-${r.playerId}`}>
+                        {t('win')}: {r.winPct.toFixed(2)}% | {t('tie')}: {r.tiePct.toFixed(2)}% | Equity: {r.equity.toFixed(2)}%
+                      </div>
+                    ) : (
+                      <div className="text-xs text-muted-foreground font-mono" data-testid={`stats-player-${r.playerId}`}>
+                        {t('win')}: {r.wins.toLocaleString()} | {t('tie')}: {r.ties.toLocaleString()} | {t('total')}: {r.total.toLocaleString()}
+                      </div>
+                    )}
                     {r.bestHand && (
                       <div className="text-xs text-muted-foreground">
                         {t('bestHand')}: {r.bestHand.description}
