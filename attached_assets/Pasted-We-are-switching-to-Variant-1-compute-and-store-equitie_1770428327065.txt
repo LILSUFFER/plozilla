@@ -1,0 +1,83 @@
+We are switching to Variant 1: compute and store equities for ALL 2,598,960 real PLO5 hands (not canonical). Canonicalization must not be used for ranges like "10%".
+
+GOAL
+- Precompute equity vs random (100%) for all C(52,5)=2,598,960 distinct 5-card hands.
+- Store equity in a compact file and store a global ranking index (sorted by equity).
+- Use this data to implement villain ranges: "top X%" exactly over the 2.6M universe.
+- Keep equity calculation engine (PLO5 rules) unchanged, just change what we precompute and how we sample ranges.
+
+DATA FORMAT (must implement)
+1) public/equity_all_2598960.f32
+   - float32 little-endian array length 2,598,960
+   - equity in [0,1]
+
+2) public/rank_index_all_2598960.u32
+   - uint32 little-endian array length 2,598,960
+   - indexes 0..2,598,959 sorted by equity descending (best to worst)
+
+HAND INDEXING (must be deterministic)
+- Implement a bijection between a 5-card hand (sorted 0..51 card ids) and an index 0..2,598,959:
+  - Provide two functions:
+    - hand_to_index(cards5_sorted) -> u32
+    - index_to_hand(i) -> cards5_sorted
+- Use combinadic ranking for 5-combinations (C(52,5)) to map.
+- This is required so we can:
+  - store equity by index
+  - sample topX% hands by index and reconstruct actual 5 cards for blocker checks.
+
+PRECOMPUTE ENGINE (Rust, VPS)
+- Add a new command:
+  plo5_ranker precompute_all
+    --boards <N> (random 5-card boards from remaining 47)
+    --villain-samples <M> (random villain hands per board from remaining after hero+board)
+    --threads <auto>
+    --seed <S>
+    --out-equity public/equity_all_2598960.f32
+    --out-rank  public/rank_index_all_2598960.u32
+
+- Algorithm (Monte Carlo, unbiased):
+  For each hero hand index i in 0..2,598,959:
+    hero = index_to_hand(i)
+    remaining = deck \ hero
+    repeat BOARDS times:
+      board = sample 5 from remaining
+      pool = remaining \ board
+      repeat VILLAIN_SAMPLES times:
+        villain = sample 5 from pool
+        eval showdown with exact PLO5 rules (2 from hand, 3 from board)
+    equity = (wins + 0.5*ties) / total
+    write equity[i] = float32
+
+- After equities computed:
+  build rank_index by sorting indices by equity desc and write u32 array.
+
+CRITICAL REQUIREMENTS
+- No canonical suit remapping anywhere in this precompute_all path.
+- Blocker correctness: villain sampling must exclude hero cards and board cards.
+- Deterministic mode: if seed set, results must be reproducible.
+
+RANGE SAMPLING (for /api/equity)
+- Support villain strings:
+  - "100%"
+  - "top X%" where X in (0,100]
+- For "top X%":
+  - load rank_index_all_2598960.u32
+  - topCount = ceil(X/100 * 2598960)
+  - sample uniformly from first topCount indices
+  - reconstruct villain hand via index_to_hand
+  - reject if conflicts with hero/board/dead, resample
+
+SERVER/UI
+- Add a toggle in the UI: Villain presets (100%, top1, top3, top5, top10, top20)
+- Show: “Range universe: 2,598,960 hands (all combos)”
+
+TESTS
+- Add regression comparing our "top 10%" vs PPT scenario:
+  hero=AhAdThTd8s vs villain="top 10%" trials=600000 seed=12345
+  Should be close to PPT (within expected MC error).
+- Add blocker test: if sampled villain conflicts, must resample; if impossible, error.
+
+DELIVERABLES
+- Rust implementation + scripts to run on VPS
+- Binary file format docs
+- Instructions to copy the two files back to Replit public/

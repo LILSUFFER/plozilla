@@ -29,6 +29,22 @@ fn comb_index(c: &[u8; 5]) -> usize {
         + BINOM[c[4] as usize][5]) as usize
 }
 
+fn index_to_hand(mut idx: u32) -> [u8; 5] {
+    let mut cards = [0u8; 5];
+    for k in (0..5u8).rev() {
+        let kk = (k + 1) as usize;
+        let mut c = kk as u8 - 1;
+        loop {
+            c += 1;
+            if BINOM[c as usize][kk] > idx { break; }
+        }
+        c -= 1;
+        cards[k as usize] = c;
+        idx -= BINOM[c as usize][kk];
+    }
+    cards
+}
+
 fn hand_sort_key(cards: &[u8; 5]) -> u64 {
     let mut ranks = [0u8; 5];
     let mut suits = [0u8; 5];
@@ -1284,19 +1300,186 @@ fn run_equity(args: &[String]) {
     }
 }
 
+fn run_precompute_all(args: &[String]) {
+    let boards_n: u32 = parse_flag(args, "--boards")
+        .and_then(|s| s.parse().ok()).unwrap_or(1000);
+    let villain_samples: u32 = parse_flag(args, "--villain-samples")
+        .and_then(|s| s.parse().ok()).unwrap_or(10);
+    let seed: u64 = parse_flag(args, "--seed")
+        .and_then(|s| s.parse().ok()).unwrap_or(12345);
+    let threads_str = parse_flag(args, "--threads").unwrap_or_else(|| "auto".into());
+    let out_equity = parse_flag(args, "--out-equity")
+        .unwrap_or_else(|| "equity_all_2598960.f32".into());
+    let out_rank = parse_flag(args, "--out-rank")
+        .unwrap_or_else(|| "rank_index_all_2598960.u32".into());
+
+    let total_hands: u32 = BINOM[52][5];
+    assert_eq!(total_hands, 2598960);
+
+    let num_threads: usize = match threads_str.as_str() {
+        "auto" => num_cpus(),
+        s => s.parse().unwrap_or(4),
+    };
+
+    eprintln!("╔══════════════════════════════════════════════╗");
+    eprintln!("║  PLO5 Precompute ALL 2,598,960 hands         ║");
+    eprintln!("╚══════════════════════════════════════════════╝");
+    eprintln!();
+    eprintln!("  Total hands:        {}", total_hands);
+    eprintln!("  Boards/hero:        {}", boards_n);
+    eprintln!("  Villain samples:    {}", villain_samples);
+    eprintln!("  Seed:               {}", seed);
+    eprintln!("  Threads:            {}", num_threads);
+    eprintln!("  Output equity:      {}", out_equity);
+    eprintln!("  Output rank:        {}", out_rank);
+    eprintln!();
+
+    let t0 = Instant::now();
+    eprintln!("[1/4] Initializing eval table...");
+    let table = init_eval_table();
+    eprintln!("       Done in {:.2}s", t0.elapsed().as_secs_f64());
+
+    eprintln!("[2/4] Verifying index_to_hand bijection (spot check)...");
+    for test_i in [0u32, 1, 100, 1000, 2598959] {
+        let h = index_to_hand(test_i);
+        let back = comb_index(&h) as u32;
+        assert_eq!(test_i, back, "index_to_hand roundtrip failed for {}", test_i);
+    }
+    eprintln!("       Bijection OK");
+
+    let evals_per_hero = boards_n as u64 * villain_samples as u64;
+    let total_evals = evals_per_hero * total_hands as u64;
+    eprintln!();
+    eprintln!("[3/4] Computing equity for all {} hands...", total_hands);
+    eprintln!("       {} showdowns/hero × {} heroes = {:.2}B total",
+        evals_per_hero, total_hands, total_evals as f64 / 1e9);
+
+    let equities = vec![0.0f64; total_hands as usize];
+    let equity_ptr = equities.as_ptr() as usize;
+
+    let progress = AtomicU64::new(0);
+    let t2 = Instant::now();
+    let chunk_size = (total_hands as usize + num_threads - 1) / num_threads;
+
+    thread::scope(|s| {
+        for t in 0..num_threads {
+            let table_ref = &table;
+            let progress_ref = &progress;
+            let eq_ptr = equity_ptr;
+            s.spawn(move || {
+                let start = t * chunk_size;
+                let end = ((t + 1) * chunk_size).min(total_hands as usize);
+                let eq_slice = unsafe {
+                    std::slice::from_raw_parts_mut(eq_ptr as *mut f64, total_hands as usize)
+                };
+                let mut rng = Xorshift64::new(mix_seed(seed.wrapping_add(t as u64)));
+
+                for idx in start..end {
+                    let hero = index_to_hand(idx as u32);
+                    let hero_bm = card_bitmap(&hero);
+                    let hero_2s = two_card_subsets(&hero);
+
+                    let remaining: Vec<u8> = (0..52u8)
+                        .filter(|c| hero_bm & (1u64 << (*c as u64)) == 0)
+                        .collect();
+
+                    let mut wins = 0.0f64;
+                    let mut total = 0u64;
+
+                    for _ in 0..boards_n {
+                        let sampled = sample_n(&remaining, 10, &mut rng);
+                        let mut board = [sampled[0], sampled[1], sampled[2], sampled[3], sampled[4]];
+                        board.sort();
+                        let board_bm = card_bitmap(&board);
+                        let board_3s = three_card_subsets(&board);
+                        let hero_rank = eval_best(&hero_2s, &board_3s, table_ref);
+
+                        let pool: Vec<u8> = remaining.iter()
+                            .filter(|&&c| board_bm & (1u64 << (c as u64)) == 0)
+                            .copied()
+                            .collect();
+
+                        for v in 0..villain_samples {
+                            let _ = v;
+                            let villain = sample_villain(&pool, &mut rng);
+                            let villain_2s = two_card_subsets(&villain);
+                            let villain_rank = eval_best(&villain_2s, &board_3s, table_ref);
+                            if hero_rank < villain_rank { wins += 1.0; }
+                            else if hero_rank == villain_rank { wins += 0.5; }
+                            total += 1;
+                        }
+                    }
+
+                    eq_slice[idx] = if total > 0 { wins / total as f64 } else { 0.5 };
+
+                    let done = progress_ref.fetch_add(1, Ordering::Relaxed) + 1;
+                    if done % 50000 == 0 || done == total_hands as u64 {
+                        let elapsed = t2.elapsed().as_secs_f64();
+                        let rate = done as f64 / elapsed;
+                        let eta = (total_hands as u64 - done) as f64 / rate;
+                        eprint!("\r       {}/{} ({:.1}%) — {:.0} hands/s — ETA {:.0}s   ",
+                            done, total_hands, done as f64 / total_hands as f64 * 100.0, rate, eta);
+                    }
+                }
+            });
+        }
+    });
+    eprintln!();
+    let compute_time = t2.elapsed().as_secs_f64();
+    eprintln!("       Done in {:.1}s ({:.0} hands/s)", compute_time, total_hands as f64 / compute_time);
+
+    eprintln!();
+    eprintln!("[4/4] Writing output files...");
+
+    {
+        let f = File::create(&out_equity).expect("Cannot create equity output file");
+        let mut w = BufWriter::new(f);
+        for &eq in &equities {
+            w.write_all(&(eq as f32).to_le_bytes()).unwrap();
+        }
+        w.flush().unwrap();
+        let size = total_hands as u64 * 4;
+        eprintln!("       {} — {} bytes ({:.2} MB)", out_equity, size, size as f64 / 1e6);
+    }
+
+    {
+        let mut indices: Vec<u32> = (0..total_hands).collect();
+        indices.sort_by(|&a, &b| {
+            equities[b as usize]
+                .partial_cmp(&equities[a as usize])
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let f = File::create(&out_rank).expect("Cannot create rank output file");
+        let mut w = BufWriter::new(f);
+        for &idx in &indices {
+            w.write_all(&idx.to_le_bytes()).unwrap();
+        }
+        w.flush().unwrap();
+        let size = total_hands as u64 * 4;
+        eprintln!("       {} — {} bytes ({:.2} MB)", out_rank, size, size as f64 / 1e6);
+    }
+
+    let total_time = t0.elapsed().as_secs_f64();
+    eprintln!();
+    eprintln!("  Total time: {:.1}s ({:.1} min)", total_time, total_time / 60.0);
+    eprintln!("  Done!");
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
         eprintln!("PLO5 Ranker Engine v2.0");
         eprintln!();
         eprintln!("Usage:");
-        eprintln!("  plo5_ranker precompute [options]");
-        eprintln!("    --boards full|<N>       Board mode: 'full' = exhaustive C(47,5), <N> = random sample N boards");
-        eprintln!("    --villain-samples <N>   Random villain hands per board (default: 50)");
+        eprintln!("  plo5_ranker precompute [options]       Canonical hand rankings (134K hands)");
+        eprintln!("  plo5_ranker precompute_all [options]   ALL 2,598,960 hands equity");
+        eprintln!("    --boards <N>            Random boards per hero (default: 1000)");
+        eprintln!("    --villain-samples <N>   Villain hands per board (default: 10)");
         eprintln!("    --seed <u64>            RNG seed (default: 12345)");
-        eprintln!("    --crn on|off            Common Random Numbers mode (default: on)");
         eprintln!("    --threads auto|<N>      Thread count (default: auto)");
-        eprintln!("    --out <path>            Output file (default: plo5_rankings_prod.bin)");
+        eprintln!("    --out-equity <path>     Output equity file (default: equity_all_2598960.f32)");
+        eprintln!("    --out-rank <path>       Output rank index file (default: rank_index_all_2598960.u32)");
         eprintln!();
         eprintln!("  plo5_ranker equity [options]");
         eprintln!("    --hand <hand>           Hand to evaluate (e.g., AcAdKhQh5s)");
@@ -1319,20 +1502,19 @@ fn main() {
         eprintln!();
         eprintln!("  plo5_ranker info");
         eprintln!();
-        eprintln!("Example (Stage-2 production with CRN):");
-        eprintln!("  plo5_ranker precompute --boards 20000 --villain-samples 20 --seed 12345 --crn on --threads auto");
         std::process::exit(0);
     }
 
     match args[1].as_str() {
         "precompute" => run_precompute(&args[2..]),
+        "precompute_all" => run_precompute_all(&args[2..]),
         "equity" => run_equity(&args[2..]),
         "accuracy" => run_accuracy(&args[2..]),
         "baseline" => run_baseline(&args[2..]),
         "validate" => run_validate(&args[2..]),
         "info" => run_info(),
         other => {
-            eprintln!("Unknown command: {}. Use precompute, equity, accuracy, baseline, validate, or info.", other);
+            eprintln!("Unknown command: {}. Use precompute, precompute_all, equity, accuracy, baseline, validate, or info.", other);
             std::process::exit(1);
         }
     }
