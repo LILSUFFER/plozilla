@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { type Card } from '@/lib/poker-evaluator';
-import { parseCardsConcat, type PlayerInput, type CalculationResult } from '@/lib/equity-calculator';
+import { parseCardsConcat, normalizeBoardShorthand, type PlayerInput, type CalculationResult } from '@/lib/equity-calculator';
 import { calculateEquityFast } from '@/lib/wasm-equity';
 import { getCachedEquity, setCachedEquity, getMemoryCacheSize } from '@/lib/equity-cache';
 import { parseRange, getRandomHandFromRange, generateRandomHandFromPattern } from '@/lib/range-parser';
@@ -316,6 +316,14 @@ export function EquityCalculator() {
     const parsed = parseCardsConcat(input);
     if (parsed && parsed.length <= 5) {
       setBoard(parsed);
+    } else {
+      const normalized = normalizeBoardShorthand(input);
+      if (normalized) {
+        const normParsed = parseCardsConcat(normalized);
+        if (normParsed && normParsed.length >= 3 && normParsed.length <= 5) {
+          setBoard(normParsed);
+        }
+      }
     }
   }, []);
   

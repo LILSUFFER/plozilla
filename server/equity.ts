@@ -179,7 +179,52 @@ function parseCardString(s: string): string[] {
   return cards;
 }
 
+const SUIT_ORDER = ['h', 'd', 'c', 's'] as const;
+const VALID_RANKS = new Set('23456789TJQKA'.split(''));
+
+function normalizeBoardShorthand(s: string): string {
+  const trimmed = s.trim();
+  if (!trimmed) return '';
+  const suited = parseCardString(trimmed);
+  if (suited.length > 0) return suited.join('');
+
+  const ranks: string[] = [];
+  let i = 0;
+  while (i < trimmed.length) {
+    if (trimmed[i] === '1' && trimmed[i + 1] === '0') {
+      ranks.push('T');
+      i += 2;
+    } else {
+      const r = trimmed[i].toUpperCase();
+      if (!VALID_RANKS.has(r)) return trimmed;
+      ranks.push(r);
+      i += 1;
+    }
+  }
+  if (ranks.length < 3 || ranks.length > 5) return trimmed;
+
+  const used = new Set<string>();
+  const result: string[] = [];
+  for (const rank of ranks) {
+    let assigned = false;
+    for (const suit of SUIT_ORDER) {
+      const card = `${rank}${suit}`;
+      if (!used.has(card)) {
+        result.push(card);
+        used.add(card);
+        assigned = true;
+        break;
+      }
+    }
+    if (!assigned) return trimmed;
+  }
+  return result.join('');
+}
+
 export async function runEquity(req: EquityRequest): Promise<EquityResponse> {
+  if (req.board) {
+    req.board = normalizeBoardShorthand(req.board);
+  }
   const validationError = validateRequest(req);
   if (validationError) {
     return { ok: false, error: validationError };
@@ -436,6 +481,9 @@ function validateBreakdownRequest(req: BreakdownRequest): string | null {
 }
 
 export async function runBreakdown(req: BreakdownRequest): Promise<BreakdownResponse> {
+  if (req.board) {
+    req.board = normalizeBoardShorthand(req.board);
+  }
   const validationError = validateBreakdownRequest(req);
   if (validationError) {
     return { ok: false, error: validationError };
