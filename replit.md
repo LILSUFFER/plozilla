@@ -25,7 +25,11 @@ Preferred communication style: Simple, everyday language.
 - **Static Serving**: Express static middleware for React app
 
 ### Core Domain Logic
-- **Native Rust Engine**: `engine-rust/` provides a high-performance PLO5 ranking engine (`plo5_ranker`) for precomputing and calculating equity, utilizing a Two Plus Two lookup table. This engine supports various commands for precomputation, equity calculation, accuracy validation, and range analysis. It uses a custom binary format for storing hand data and employs a deterministic Common Random Numbers (CRN) mode for stable, reproducible rankings.
+- **Native Rust Engine**: `engine-rust/` provides a high-performance PLO5 ranking engine (`plo5_ranker`) for precomputing and calculating equity, utilizing a Two Plus Two lookup table. This engine supports various commands for precomputation, equity calculation, accuracy validation, range analysis, and diagnostic sampling validation (`debug_range`). It uses a custom binary format for storing hand data and employs a deterministic Common Random Numbers (CRN) mode for stable, reproducible rankings.
+  - **Equity formula**: `(wins + 0.5 * ties) / total` — wins, ties, losses tracked as separate u64 counters. Internal assertion verifies consistency (delta < 1e-12).
+  - **JSON output fields**: `equity`, `equityPct`, `winPct`, `tiePct`, `wins`, `ties`, `losses`, `trials`, `seed`, `elapsedMs`, `villainRange`, optionally `rankIndexMode`, `totalConcrete`, `topK`.
+  - **Server assertions**: Server validates `equity == (wins + 0.5*ties)/total` for both local and remote engine responses.
+  - **UI display**: Shows Win%, Tie%, Equity% separately (PPT-style) when server provides percentage breakdown.
 - **WASM Evaluator**: AssemblyScript poker hand evaluator (`assembly/index.ts`) compiled to WebAssembly for Monte Carlo simulations.
 - **WASM Integration**: Manages loading and providing JavaScript fallback for the WASM module.
 - **Poker Evaluator**: JavaScript implementation for hand evaluation (fallback).
