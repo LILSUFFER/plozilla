@@ -7,7 +7,7 @@ A browser-based 5-Card Omaha equity calculator similar to ProPokerTools Oracle. 
 ## Recent Changes (Feb 2026)
 - **Native Rust Engine for Hand Rankings** (Feb 2026): High-performance PLO5 ranking engine
   - **Engine**: `engine-rust/` — native Rust CLI (`plo5_ranker`) with Two Plus Two lookup table
-  - **Commands**: precompute, equity, accuracy, baseline, validate, info, precompute_all
+  - **Commands**: precompute, equity, accuracy, baseline, validate, info, precompute_all, build_rank_index
   - **Binary format**: PLO5 magic (4 bytes) + 64-byte header + 20 bytes/hand (134,459 hands = 2.69MB)
     - Header: version, numHands, boardsProcessed, villainSamples, avgSamples, minSamples, maxSamples, timestamp
     - Record: 5 card bytes + 1 combo count + 4 equity (f32) + 4 rank (u32) + 4 percentile (f32) + 2 reserved
@@ -21,13 +21,15 @@ A browser-based 5-Card Omaha equity calculator similar to ProPokerTools Oracle. 
     - Acceptance rate: ~59% of boards valid per hero (C(47,5)/C(52,5))
     - Bitmap-based O(1) overlap checking for performance
   - **Equity command**: `plo5_ranker equity --hand AcAdKhQh5s --trials 600000 --seed 12345 [--villain-range 100%|topN%] [--rank-file path]`
-  - **Villain range support**: `--villain-range top10%` restricts villain sampling to top N% of precomputed hand rankings
-  - **Precompute all**: `plo5_ranker precompute_all --boards N --villain-samples M` computes equity for all 2,598,960 hands
-  - **Binary output**: `equity_all_2598960.f32` (10.4MB, raw f32) + `rank_index_all_2598960.u32` (10.4MB, hand indices sorted by equity desc)
+  - **Villain range support**: `--villain-range 10%` restricts villain sampling to top N% of precomputed hand rankings
+  - **build_rank_index**: Generates `rank_index_all_2598960.u32` from production binary (`plo5_rankings_prod.bin`)
+    - Maps all 2,598,960 combos through canonicalization to look up high-quality canonical equity
+    - Much more accurate than precompute_all (which used noisy MC estimates per combo)
+    - Usage: `plo5_ranker build_rank_index --bin public/plo5_rankings_prod.bin --out public/rank_index_all_2598960.u32`
+    - Runs in seconds (no Monte Carlo needed, pure lookup + sort)
+  - **Precompute all**: `plo5_ranker precompute_all --boards N --villain-samples M` computes equity for all 2,598,960 hands (legacy, superseded by build_rank_index)
+  - **Binary output**: `rank_index_all_2598960.u32` (10.4MB, hand indices sorted by equity desc)
   - **Combinadic indexing**: `hand_to_index` / `index_to_hand` for bijective mapping of C(52,5) = 2,598,960 hands
-  - **Practical VPS production**: `--boards 10000 --villain-samples 10` → ~4h on fast 8-core VPS
-  - **Stage-2 config**: `--boards 20000 --villain-samples 20 --seed 12345 --crn on` (higher precision)
-  - **Quick test**: `--boards 100 --villain-samples 1` (18 seconds for all 134K hands)
   - **Accuracy command**: `plo5_ranker accuracy --bin file.bin --trials 2000000 [--test-hands hand1,hand2]`
   - **Card encoding conversion**: Rust uses suit×13+rank, Server uses rank×4+suit — converted during binary read
   - **Scripts**: `scripts/vps_setup.sh` (system deps + Rust), `scripts/vps_run_stage1.sh`, `scripts/vps_run_stage2.sh` (CRN), `scripts/vps_precompute_all.sh`
