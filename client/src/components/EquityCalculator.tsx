@@ -812,18 +812,280 @@ export function EquityCalculator() {
   
   const maxEquity = result ? Math.max(...result.results.map(r => r.equity)) : 0;
   
+  const hasBreakdownContent = breakdownLoading || breakdownResult || breakdownError;
+  const showRightPanel = hasBreakdownContent && !isCalculating;
+
+  const breakdownPanel = (() => {
+    if (!hasBreakdownContent || isCalculating) return null;
+
+    const baselineEquity = result?.results?.[0]?.equity != null ? result.results[0].equity / 100 : null;
+    const RANK_ORDER = ['A','K','Q','J','T','9','8','7','6','5','4','3','2'];
+    const getRank = (card: string) => card.slice(0, card.length - 1);
+
+    const rankGroups = breakdownResult ? (() => {
+      const groups: Record<string, { rank: string; items: BreakdownItem[]; avgEquity: number; bestItem: BreakdownItem }> = {};
+      for (const item of breakdownResult.items) {
+        const r = getRank(item.card);
+        if (!groups[r]) groups[r] = { rank: r, items: [], avgEquity: 0, bestItem: item };
+        groups[r].items.push(item);
+        if (item.equity > groups[r].bestItem.equity) groups[r].bestItem = item;
+      }
+      for (const g of Object.values(groups)) {
+        g.avgEquity = g.items.reduce((s, i) => s + i.equity, 0) / g.items.length;
+      }
+      return RANK_ORDER.filter(r => groups[r]).map(r => groups[r]);
+    })() : [];
+
+    const filteredItems = breakdownResult ? (() => {
+      let items = [...breakdownResult.items];
+      if (breakdownFilterBetter && baselineEquity != null) {
+        items = items.filter(i => i.equity > baselineEquity);
+      }
+      return items;
+    })() : [];
+
+    const filteredRankGroups = breakdownFilterBetter && baselineEquity != null
+      ? rankGroups.filter(g => g.avgEquity > baselineEquity)
+      : rankGroups;
+
+    const displayItems = breakdownShowAll ? filteredItems : filteredItems.slice(0, 20);
+
+    return (
+      <div className="space-y-3" data-testid="section-breakdown">
+        <div className="sticky top-0 z-10 bg-muted/80 backdrop-blur-sm -mx-4 px-4 py-2 border-b">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <h3 className="font-semibold flex items-center gap-2 text-sm">
+              <BarChart3 className="w-4 h-4" />
+              {t('breakdownTitle')}
+            </h3>
+            {breakdownResult && (
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <Badge variant="secondary" data-testid="badge-breakdown-street">
+                  {breakdownResult.street === 'turn' ? t('breakdownFlopToTurn') : t('breakdownTurnToRiver')}
+                </Badge>
+                <Badge variant="outline" data-testid="badge-breakdown-time">
+                  {breakdownResult.elapsedMs < 1000 ? `${breakdownResult.elapsedMs}ms` : `${(breakdownResult.elapsedMs / 1000).toFixed(1)}s`}
+                </Badge>
+              </div>
+            )}
+          </div>
+          {baselineEquity != null && (
+            <div className="flex items-center gap-2 mt-1 text-xs" data-testid="text-breakdown-baseline">
+              <span className="text-muted-foreground">{t('breakdownBaseline')}:</span>
+              <span className="font-mono font-bold tabular-nums">{(baselineEquity * 100).toFixed(2)}%</span>
+            </div>
+          )}
+        </div>
+
+        {breakdownLoading && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            <span>{t('breakdownRunning')}</span>
+          </div>
+        )}
+
+        {breakdownError && (
+          <div className="p-3 rounded-md border border-destructive bg-destructive/10 text-sm text-destructive" data-testid="text-breakdown-error">
+            {breakdownError}
+          </div>
+        )}
+
+        {breakdownResult && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex rounded-md border overflow-visible" data-testid="tabs-breakdown-mode">
+                <button
+                  onClick={() => setBreakdownTab('cards')}
+                  className={cn('px-2.5 py-1 text-xs font-medium transition-colors', breakdownTab === 'cards' ? 'bg-primary text-primary-foreground' : 'hover-elevate')}
+                  data-testid="tab-breakdown-cards"
+                >
+                  {t('breakdownTabCards')}
+                </button>
+                <button
+                  onClick={() => setBreakdownTab('byRank')}
+                  className={cn('px-2.5 py-1 text-xs font-medium border-l transition-colors', breakdownTab === 'byRank' ? 'bg-primary text-primary-foreground' : 'hover-elevate')}
+                  data-testid="tab-breakdown-byrank"
+                >
+                  {t('breakdownTabByRank')}
+                </button>
+              </div>
+
+              <label className="flex items-center gap-1 text-xs cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={breakdownFilterBetter}
+                  onChange={e => { setBreakdownFilterBetter(e.target.checked); setBreakdownShowAll(false); }}
+                  className="h-3 w-3 rounded border-muted-foreground"
+                  data-testid="checkbox-breakdown-filter-better"
+                />
+                {t('breakdownFilterBetter')}
+              </label>
+
+              <label className="flex items-center gap-1 text-xs cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={breakdownNormalize}
+                  onChange={e => setBreakdownNormalize(e.target.checked)}
+                  className="h-3 w-3 rounded border-muted-foreground"
+                  data-testid="checkbox-breakdown-normalize"
+                />
+                {t('breakdownNormalize')}
+              </label>
+            </div>
+
+            {breakdownTab === 'cards' && (
+              <div className="space-y-1">
+                <div className="rounded-md border overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b bg-muted/40">
+                        <th className="text-left px-2 py-1.5 w-8">#</th>
+                        <th className="text-left px-2 py-1.5">{t('breakdownCard')}</th>
+                        <th className="text-right px-2 py-1.5">{t('breakdownEquity')}</th>
+                        {baselineEquity != null && <th className="text-right px-2 py-1.5">{t('breakdownDelta')}</th>}
+                        <th className="px-2 py-1.5 w-[30%]"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {displayItems.map((item, idx) => {
+                        const delta = baselineEquity != null ? item.equity - baselineEquity : null;
+                        const minEq = breakdownNormalize ? (filteredItems[filteredItems.length - 1]?.equity || 0) : 0;
+                        const maxEq = filteredItems[0]?.equity || 0;
+                        const range = maxEq - minEq;
+                        const barWidth = range > 0 ? ((item.equity - minEq) / range) * 100 : 50;
+                        const isGood = delta != null ? delta > 0 : item.equity >= 0.5;
+                        return (
+                          <tr key={item.card} className="border-b last:border-b-0" data-testid={`row-breakdown-${item.card}`}>
+                            <td className="px-2 py-1 text-muted-foreground tabular-nums">{idx + 1}</td>
+                            <td className="px-2 py-1"><CardLabel card={item.card} /></td>
+                            <td className={cn('px-2 py-1 text-right font-mono tabular-nums', isGood ? 'text-green-600 dark:text-green-400 font-bold' : '')}>
+                              {(item.equity * 100).toFixed(1)}%
+                            </td>
+                            {delta != null && (
+                              <td className={cn('px-2 py-1 text-right font-mono tabular-nums',
+                                delta > 0.001 ? 'text-green-600 dark:text-green-400' : delta < -0.001 ? 'text-red-500 dark:text-red-400' : 'text-muted-foreground'
+                              )} data-testid={`delta-${item.card}`}>
+                                {delta > 0 ? '+' : ''}{(delta * 100).toFixed(1)}
+                              </td>
+                            )}
+                            <td className="px-2 py-1">
+                              <div className="relative h-3 bg-muted/30 rounded overflow-hidden">
+                                <div
+                                  className={cn('h-full rounded transition-all', isGood ? 'bg-green-500/70' : 'bg-red-400/50 dark:bg-red-500/40')}
+                                  style={{ width: `${Math.max(barWidth, 2)}%` }}
+                                />
+                                {baselineEquity != null && !breakdownNormalize && (
+                                  <div
+                                    className="absolute top-0 bottom-0 w-px bg-foreground/50"
+                                    style={{ left: `${Math.min(Math.max(baselineEquity / (filteredItems[0]?.equity || 1) * 100, 0), 100)}%` }}
+                                  />
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {filteredItems.length > 20 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setBreakdownShowAll(!breakdownShowAll)}
+                    className="w-full"
+                    data-testid="button-breakdown-show-toggle"
+                  >
+                    {breakdownShowAll ? (
+                      <><ChevronUp className="w-4 h-4 mr-1" />{t('breakdownShowTop')}</>
+                    ) : (
+                      <><ChevronDown className="w-4 h-4 mr-1" />{t('breakdownShowAll').replace('{n}', String(filteredItems.length))}</>
+                    )}
+                  </Button>
+                )}
+              </div>
+            )}
+
+            {breakdownTab === 'byRank' && (
+              <div className="rounded-md border overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b bg-muted/40">
+                      <th className="text-left px-2 py-1.5">{t('breakdownRank')}</th>
+                      <th className="text-right px-2 py-1.5">{t('breakdownAvgEquity')}</th>
+                      {baselineEquity != null && <th className="text-right px-2 py-1.5">{t('breakdownDelta')}</th>}
+                      <th className="text-left px-2 py-1.5">{t('breakdownBestSuit')}</th>
+                      <th className="text-right px-2 py-1.5">{t('breakdownCount')}</th>
+                      <th className="px-2 py-1.5 w-[25%]"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredRankGroups.map(g => {
+                      const delta = baselineEquity != null ? g.avgEquity - baselineEquity : null;
+                      const isGood = delta != null ? delta > 0 : g.avgEquity >= 0.5;
+                      const minEq = breakdownNormalize ? (filteredRankGroups[filteredRankGroups.length - 1]?.avgEquity || 0) : 0;
+                      const maxEq = filteredRankGroups[0]?.avgEquity || 0;
+                      const range = maxEq - minEq;
+                      const barWidth = range > 0 ? ((g.avgEquity - minEq) / range) * 100 : 50;
+                      return (
+                        <tr key={g.rank} className="border-b last:border-b-0" data-testid={`row-rank-${g.rank}`}>
+                          <td className="px-2 py-1 font-mono font-bold">{g.rank}</td>
+                          <td className={cn('px-2 py-1 text-right font-mono tabular-nums', isGood ? 'text-green-600 dark:text-green-400 font-bold' : '')}>
+                            {(g.avgEquity * 100).toFixed(1)}%
+                          </td>
+                          {delta != null && (
+                            <td className={cn('px-2 py-1 text-right font-mono tabular-nums',
+                              delta > 0.001 ? 'text-green-600 dark:text-green-400' : delta < -0.001 ? 'text-red-500 dark:text-red-400' : 'text-muted-foreground'
+                            )}>
+                              {delta > 0 ? '+' : ''}{(delta * 100).toFixed(1)}
+                            </td>
+                          )}
+                          <td className="px-2 py-1"><CardLabel card={g.bestItem.card} /></td>
+                          <td className="px-2 py-1 text-right text-muted-foreground tabular-nums">{g.items.length}</td>
+                          <td className="px-2 py-1">
+                            <div className="relative h-3 bg-muted/30 rounded overflow-hidden">
+                              <div
+                                className={cn('h-full rounded transition-all', isGood ? 'bg-green-500/70' : 'bg-red-400/50 dark:bg-red-500/40')}
+                                style={{ width: `${Math.max(barWidth, 2)}%` }}
+                              />
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  })();
+
   return (
-    <UICard>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Calculator className="w-5 h-5" />
-          {t('subtitle')}
-        </CardTitle>
-        <CardDescription>
-          {t('calcDesc')}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
+    <div className={cn(
+      'h-full',
+      showRightPanel
+        ? 'grid grid-cols-1 xl:grid-cols-[1fr_420px] gap-0 overflow-hidden'
+        : ''
+    )} data-testid="calculator-layout">
+      <div className={cn(
+        showRightPanel ? 'overflow-y-auto xl:pr-4' : '',
+        'min-h-0'
+      )}>
+        <UICard className="border-0 shadow-none xl:border xl:shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Calculator className="w-4 h-4" />
+              {t('subtitle')}
+            </CardTitle>
+            <CardDescription className="text-xs">
+              {t('calcDesc')}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 pt-0">
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <Label>{t('board')}</Label>
@@ -1046,260 +1308,6 @@ export function EquityCalculator() {
           </div>
         )}
         
-        {(breakdownLoading || breakdownResult || breakdownError) && !isCalculating && (() => {
-          const baselineEquity = result?.results?.[0]?.equity != null ? result.results[0].equity / 100 : null;
-
-          const RANK_ORDER = ['A','K','Q','J','T','9','8','7','6','5','4','3','2'];
-          const getRank = (card: string) => card.slice(0, card.length - 1);
-
-          const rankGroups = breakdownResult ? (() => {
-            const groups: Record<string, { rank: string; items: BreakdownItem[]; avgEquity: number; bestItem: BreakdownItem }> = {};
-            for (const item of breakdownResult.items) {
-              const r = getRank(item.card);
-              if (!groups[r]) groups[r] = { rank: r, items: [], avgEquity: 0, bestItem: item };
-              groups[r].items.push(item);
-              if (item.equity > groups[r].bestItem.equity) groups[r].bestItem = item;
-            }
-            for (const g of Object.values(groups)) {
-              g.avgEquity = g.items.reduce((s, i) => s + i.equity, 0) / g.items.length;
-            }
-            return RANK_ORDER.filter(r => groups[r]).map(r => groups[r]);
-          })() : [];
-
-          const filteredItems = breakdownResult ? (() => {
-            let items = [...breakdownResult.items];
-            if (breakdownFilterBetter && baselineEquity != null) {
-              items = items.filter(i => i.equity > baselineEquity);
-            }
-            return items;
-          })() : [];
-
-          const filteredRankGroups = breakdownFilterBetter && baselineEquity != null
-            ? rankGroups.filter(g => g.avgEquity > baselineEquity)
-            : rankGroups;
-
-          const displayItems = breakdownShowAll ? filteredItems : filteredItems.slice(0, 20);
-
-          return (
-          <div className="space-y-3 pt-4 border-t" data-testid="section-breakdown">
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <h3 className="font-semibold flex items-center gap-2">
-                <BarChart3 className="w-4 h-4" />
-                {t('breakdownTitle')}
-              </h3>
-              {breakdownResult && (
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Badge variant="secondary" data-testid="badge-breakdown-street">
-                    {breakdownResult.street === 'turn' ? t('breakdownFlopToTurn') : t('breakdownTurnToRiver')}
-                  </Badge>
-                  <Badge variant="outline" data-testid="badge-breakdown-time">
-                    {breakdownResult.elapsedMs < 1000 ? `${breakdownResult.elapsedMs}ms` : `${(breakdownResult.elapsedMs / 1000).toFixed(1)}s`}
-                  </Badge>
-                  <Badge variant="secondary" data-testid="badge-breakdown-trials">
-                    {breakdownResult.totalTrials.toLocaleString()} {t('trials')}
-                  </Badge>
-                </div>
-              )}
-            </div>
-
-            {breakdownLoading && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-                <span>{t('breakdownRunning')}</span>
-              </div>
-            )}
-
-            {breakdownError && (
-              <div className="p-3 rounded-md border border-destructive bg-destructive/10 text-sm text-destructive" data-testid="text-breakdown-error">
-                {breakdownError}
-              </div>
-            )}
-
-            {breakdownResult && (
-              <div className="space-y-3">
-                {baselineEquity != null && (
-                  <div className="flex items-center gap-2 px-1 text-sm" data-testid="text-breakdown-baseline">
-                    <span className="text-muted-foreground">{t('breakdownBaseline')}:</span>
-                    <span className="font-mono font-bold tabular-nums">{(baselineEquity * 100).toFixed(2)}%</span>
-                  </div>
-                )}
-
-                <div className="flex items-center gap-3 flex-wrap">
-                  <div className="flex rounded-md border overflow-visible" data-testid="tabs-breakdown-mode">
-                    <button
-                      onClick={() => setBreakdownTab('cards')}
-                      className={cn('px-3 py-1.5 text-sm font-medium transition-colors', breakdownTab === 'cards' ? 'bg-primary text-primary-foreground' : 'hover-elevate')}
-                      data-testid="tab-breakdown-cards"
-                    >
-                      {t('breakdownTabCards')}
-                    </button>
-                    <button
-                      onClick={() => setBreakdownTab('byRank')}
-                      className={cn('px-3 py-1.5 text-sm font-medium border-l transition-colors', breakdownTab === 'byRank' ? 'bg-primary text-primary-foreground' : 'hover-elevate')}
-                      data-testid="tab-breakdown-byrank"
-                    >
-                      {t('breakdownTabByRank')}
-                    </button>
-                  </div>
-
-                  <label className="flex items-center gap-1.5 text-sm cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={breakdownFilterBetter}
-                      onChange={e => { setBreakdownFilterBetter(e.target.checked); setBreakdownShowAll(false); }}
-                      className="h-3.5 w-3.5 rounded border-muted-foreground"
-                      data-testid="checkbox-breakdown-filter-better"
-                    />
-                    {t('breakdownFilterBetter')}
-                  </label>
-
-                  <label className="flex items-center gap-1.5 text-sm cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={breakdownNormalize}
-                      onChange={e => setBreakdownNormalize(e.target.checked)}
-                      className="h-3.5 w-3.5 rounded border-muted-foreground"
-                      data-testid="checkbox-breakdown-normalize"
-                    />
-                    {t('breakdownNormalize')}
-                  </label>
-                </div>
-
-                {breakdownTab === 'cards' && (
-                  <div className="space-y-2">
-                    <div className="rounded-md border overflow-hidden">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b bg-muted/40">
-                            <th className="text-left px-3 py-2 w-10">#</th>
-                            <th className="text-left px-3 py-2">{t('breakdownCard')}</th>
-                            <th className="text-right px-3 py-2">{t('breakdownEquity')}</th>
-                            {baselineEquity != null && <th className="text-right px-3 py-2">{t('breakdownDelta')}</th>}
-                            <th className="text-right px-3 py-2 hidden sm:table-cell">{t('breakdownTrials')}</th>
-                            <th className="px-3 py-2 w-[35%]"></th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {displayItems.map((item, idx) => {
-                            const delta = baselineEquity != null ? item.equity - baselineEquity : null;
-                            const minEq = breakdownNormalize ? (filteredItems[filteredItems.length - 1]?.equity || 0) : 0;
-                            const maxEq = filteredItems[0]?.equity || 0;
-                            const range = maxEq - minEq;
-                            const barWidth = range > 0 ? ((item.equity - minEq) / range) * 100 : 50;
-                            const isGood = delta != null ? delta > 0 : item.equity >= 0.5;
-                            return (
-                              <tr key={item.card} className="border-b last:border-b-0" data-testid={`row-breakdown-${item.card}`}>
-                                <td className="px-3 py-1.5 text-muted-foreground tabular-nums">{idx + 1}</td>
-                                <td className="px-3 py-1.5"><CardLabel card={item.card} /></td>
-                                <td className={cn('px-3 py-1.5 text-right font-mono tabular-nums', isGood ? 'text-green-600 dark:text-green-400 font-bold' : '')}>
-                                  {(item.equity * 100).toFixed(2)}%
-                                </td>
-                                {delta != null && (
-                                  <td className={cn('px-3 py-1.5 text-right font-mono tabular-nums',
-                                    delta > 0.001 ? 'text-green-600 dark:text-green-400' : delta < -0.001 ? 'text-red-500 dark:text-red-400' : 'text-muted-foreground'
-                                  )} data-testid={`delta-${item.card}`}>
-                                    {delta > 0 ? '+' : ''}{(delta * 100).toFixed(2)}
-                                  </td>
-                                )}
-                                <td className="px-3 py-1.5 text-right text-muted-foreground tabular-nums hidden sm:table-cell">
-                                  {item.trials.toLocaleString()}
-                                </td>
-                                <td className="px-3 py-1.5">
-                                  <div className="relative h-4 bg-muted/30 rounded overflow-hidden">
-                                    <div
-                                      className={cn('h-full rounded transition-all', isGood ? 'bg-green-500/70' : 'bg-red-400/50 dark:bg-red-500/40')}
-                                      style={{ width: `${Math.max(barWidth, 2)}%` }}
-                                    />
-                                    {baselineEquity != null && !breakdownNormalize && (
-                                      <div
-                                        className="absolute top-0 bottom-0 w-px bg-foreground/50"
-                                        style={{ left: `${Math.min(Math.max(baselineEquity / (filteredItems[0]?.equity || 1) * 100, 0), 100)}%` }}
-                                      />
-                                    )}
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    {filteredItems.length > 20 && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setBreakdownShowAll(!breakdownShowAll)}
-                        className="w-full"
-                        data-testid="button-breakdown-show-toggle"
-                      >
-                        {breakdownShowAll ? (
-                          <><ChevronUp className="w-4 h-4 mr-1" />{t('breakdownShowTop')}</>
-                        ) : (
-                          <><ChevronDown className="w-4 h-4 mr-1" />{t('breakdownShowAll').replace('{n}', String(filteredItems.length))}</>
-                        )}
-                      </Button>
-                    )}
-                  </div>
-                )}
-
-                {breakdownTab === 'byRank' && (
-                  <div className="rounded-md border overflow-hidden">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b bg-muted/40">
-                          <th className="text-left px-3 py-2">{t('breakdownRank')}</th>
-                          <th className="text-right px-3 py-2">{t('breakdownAvgEquity')}</th>
-                          {baselineEquity != null && <th className="text-right px-3 py-2">{t('breakdownDelta')}</th>}
-                          <th className="text-left px-3 py-2">{t('breakdownBestSuit')}</th>
-                          <th className="text-right px-3 py-2">{t('breakdownCount')}</th>
-                          <th className="px-3 py-2 w-[30%]"></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredRankGroups.map(g => {
-                          const delta = baselineEquity != null ? g.avgEquity - baselineEquity : null;
-                          const isGood = delta != null ? delta > 0 : g.avgEquity >= 0.5;
-                          const minEq = breakdownNormalize ? (filteredRankGroups[filteredRankGroups.length - 1]?.avgEquity || 0) : 0;
-                          const maxEq = filteredRankGroups[0]?.avgEquity || 0;
-                          const range = maxEq - minEq;
-                          const barWidth = range > 0 ? ((g.avgEquity - minEq) / range) * 100 : 50;
-                          return (
-                            <tr key={g.rank} className="border-b last:border-b-0" data-testid={`row-rank-${g.rank}`}>
-                              <td className="px-3 py-1.5 font-mono font-bold text-base">{g.rank}</td>
-                              <td className={cn('px-3 py-1.5 text-right font-mono tabular-nums', isGood ? 'text-green-600 dark:text-green-400 font-bold' : '')}>
-                                {(g.avgEquity * 100).toFixed(2)}%
-                              </td>
-                              {delta != null && (
-                                <td className={cn('px-3 py-1.5 text-right font-mono tabular-nums',
-                                  delta > 0.001 ? 'text-green-600 dark:text-green-400' : delta < -0.001 ? 'text-red-500 dark:text-red-400' : 'text-muted-foreground'
-                                )}>
-                                  {delta > 0 ? '+' : ''}{(delta * 100).toFixed(2)}
-                                </td>
-                              )}
-                              <td className="px-3 py-1.5"><CardLabel card={g.bestItem.card} /></td>
-                              <td className="px-3 py-1.5 text-right text-muted-foreground tabular-nums">{g.items.length}</td>
-                              <td className="px-3 py-1.5">
-                                <div className="relative h-4 bg-muted/30 rounded overflow-hidden">
-                                  <div
-                                    className={cn('h-full rounded transition-all', isGood ? 'bg-green-500/70' : 'bg-red-400/50 dark:bg-red-500/40')}
-                                    style={{ width: `${Math.max(barWidth, 2)}%` }}
-                                  />
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-          );
-        })()}
-
         {result && !isCalculating && (
           <div className="space-y-4 pt-4 border-t">
             <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -1454,7 +1462,20 @@ export function EquityCalculator() {
             )}
           </DialogContent>
         </Dialog>
-      </CardContent>
-    </UICard>
+        {showRightPanel && (
+          <div className="xl:hidden pt-4 border-t" data-testid="panel-breakdown-mobile">
+            {breakdownPanel}
+          </div>
+        )}
+          </CardContent>
+        </UICard>
+      </div>
+
+      {showRightPanel && (
+        <div className="hidden xl:block border-l bg-muted/20 overflow-y-auto min-h-0 px-4 pt-0 pb-4" data-testid="panel-breakdown-right">
+          {breakdownPanel}
+        </div>
+      )}
+    </div>
   );
 }

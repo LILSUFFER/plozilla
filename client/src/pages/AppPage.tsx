@@ -101,7 +101,7 @@ export default function AppPage() {
         </div>
       </header>
       
-      <main className="container mx-auto px-4 py-6 flex-1">
+      <main className="flex-1 overflow-hidden xl:px-4 xl:py-2 px-4 py-4">
         <EquityCalculator />
       </main>
     </div>
