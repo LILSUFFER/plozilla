@@ -1236,6 +1236,7 @@ fn run_equity(args: &[String]) {
     let card_names: Vec<String> = canonical.iter().map(|&c| card_name(c)).collect();
     let board_to_fill = 5 - board_cards.len();
 
+    let debug_mode = args.iter().any(|a| a == "--debug");
     let rank_pool: Vec<[u8; 5]> = if is_range_restricted {
         let rank_index = load_rank_index(&rank_file);
         let top_count = ((villain_pct / 100.0) * 2598960.0).ceil() as usize;
@@ -1243,7 +1244,29 @@ fn run_equity(args: &[String]) {
         if !json_output {
             eprintln!("  Villain range: top {:.1}% ({} of 2,598,960 hands)", villain_pct, top_count);
         }
-        rank_index[..top_count].iter().map(|&idx| index_to_hand(idx)).collect()
+        let pool: Vec<[u8; 5]> = rank_index[..top_count].iter().map(|&idx| index_to_hand(idx)).collect();
+        if debug_mode || !json_output {
+            eprintln!("  DEBUG: rank_index[0] (best)  = {} → {}", rank_index[0],
+                pool[0].iter().map(|&c| card_name(c)).collect::<Vec<_>>().join(""));
+            eprintln!("  DEBUG: rank_index[{}] (cutoff) = {} → {}", top_count-1, rank_index[top_count-1],
+                pool[top_count-1].iter().map(|&c| card_name(c)).collect::<Vec<_>>().join(""));
+            if top_count < rank_index.len() {
+                let next_hand = index_to_hand(rank_index[top_count]);
+                eprintln!("  DEBUG: rank_index[{}] (first excluded) = {} → {}", top_count, rank_index[top_count],
+                    next_hand.iter().map(|&c| card_name(c)).collect::<Vec<_>>().join(""));
+            }
+            eprintln!("  DEBUG: Top 5 hands in pool:");
+            for i in 0..5.min(top_count) {
+                eprintln!("    #{}: idx={} → {}", i+1, rank_index[i],
+                    pool[i].iter().map(|&c| card_name(c)).collect::<Vec<_>>().join(""));
+            }
+            eprintln!("  DEBUG: Last 5 hands in pool (near cutoff):");
+            for i in (top_count.saturating_sub(5))..top_count {
+                eprintln!("    #{}: idx={} → {}", i+1, rank_index[i],
+                    pool[i].iter().map(|&c| card_name(c)).collect::<Vec<_>>().join(""));
+            }
+        }
+        pool
     } else {
         Vec::new()
     };

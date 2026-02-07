@@ -1,0 +1,60 @@
+We have a MAJOR equity mismatch vs ProPokerTools: ~+2% absolute, which is NOT Monte Carlo noise.
+
+Repro case (same settings):
+Hero: AhAdThTd9s
+Villain: 10%
+Trials: 600,000
+Seed: 12345 (or any fixed seed)
+Board: empty (preflop)
+
+Expected (ProPokerTools): Hero ~64.30% (Villain shows 259,896 hands)
+Our engine: Hero ~66.20% (also shows 259,896 combos)
+
+This indicates our "10% range" implementation is WRONG (range composition / weighting / direction), not just sampling noise.
+
+GOAL:
+Match PPT semantics for "N%" villain range:
+- N% means TOP N% of ALL 2,598,960 5-card combos by preflop equity vs random opponent (VR ranking).
+- Range must be combo-weighted (each combo counts once), NOT canonical-class-weighted.
+
+TASKS / FIXES:
+
+1) Verify sort direction (CRITICAL)
+- Confirm that rank #1 is the STRONGEST hand.
+- For N%=10, cutoff = floor(2,598,960 * 0.10) = 259,896.
+- The allowed villain pool must be ranks [1..cutoff] (top), NOT the tail.
+Add a quick debug print:
+  minRankInPool, maxRankInPool, avgRankSampled (over 10k samples)
+This must be near the top (avg rank ~cutoff/2), not near the bottom.
+
+2) Ensure we are sampling from the FULL 2,598,960-combo rank index
+- Do NOT sample uniformly over 134,459 canonical classes.
+- If we use a canonical ranking file, we must expand to all combos with correct weights (each combo equally likely).
+Best: use precomputed "all-combos rank index" file produced by precompute_all.
+
+3) Blockers must not bias the range downward
+- When hero cards block some top hands, we must sample uniformly from the remaining allowed pool after removing blocked combos.
+- Rejection sampling is OK ONLY if it is uniform. Verify acceptance distribution:
+  sample ranks histogram with hero blockers on/off.
+- Make sure overlap checks use the SAME card encoding (no canonical-vs-original collisions).
+
+4) Add deterministic regression tests (mandatory)
+Add a test script that runs:
+A) villain=100% (sanity)
+B) villain=10%
+For each, run trials=2,000,000 seed=12345 and assert:
+  abs(engine - ppt_reference) <= 0.25%
+Use known PPT references:
+- AhAdThTd9s vs 10% preflop ~64.30% (tolerance ±0.25%)
+- (keep existing JsTh5dTc4c vs 100% reference too)
+
+5) Expose debug endpoint / logging (temporary)
+Return in API response (when DEBUG=1):
+- villainPoolCutoff
+- sampledVillainRankMin/Max/Avg (over e.g. first 5,000 villain samples)
+This will confirm we are truly sampling TOP N%.
+
+Acceptance criteria:
+- The repro case above is within <=0.25% of PPT at 2,000,000 trials.
+- Sampled villain ranks are clearly in the top bucket (avg rank ~O(cutoff), not near 2.6M).
+- No canonical-weighting bias.
