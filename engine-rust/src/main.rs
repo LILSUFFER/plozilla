@@ -2045,23 +2045,29 @@ fn run_debug_range(args: &[String]) {
     let mut min_dev = 0.0f64;
     let mut max_dev_bucket = 0usize;
     let mut min_dev_bucket = 0usize;
+    let mut bucket_chi2 = 0.0f64;
     for (i, &count) in bucket_counts.iter().enumerate() {
         let dev = (count as f64 - expected_per_bucket) / expected_per_bucket * 100.0;
         if dev > max_dev { max_dev = dev; max_dev_bucket = i; }
         if dev < min_dev { min_dev = dev; min_dev_bucket = i; }
+        bucket_chi2 += (count as f64 - expected_per_bucket).powi(2) / expected_per_bucket;
     }
+
+    let bucket_df = num_buckets as f64 - 1.0;
+    let bucket_reduced_chi2 = bucket_chi2 / bucket_df;
 
     eprintln!();
     eprintln!("  === BUCKET HISTOGRAM ({} buckets across [0..{})) ===", num_buckets, top_k);
     eprintln!("  Expected per bucket: {:.1}", expected_per_bucket);
     eprintln!("  Max deviation: +{:.3}% (bucket {})", max_dev, max_dev_bucket);
     eprintln!("  Min deviation: {:.3}% (bucket {})", min_dev, min_dev_bucket);
+    eprintln!("  Bucket chi-squared: {:.1} (df={}, reduced={:.4})", bucket_chi2, bucket_df as u64, bucket_reduced_chi2);
 
-    let bucket_uniform = max_dev.abs() < 1.0 && min_dev.abs() < 1.0;
+    let bucket_uniform = bucket_reduced_chi2 < 1.5;
     if bucket_uniform {
-        eprintln!("  PASS: Bucket histogram is uniform (max |dev| < 1.0%)");
+        eprintln!("  PASS: Bucket chi2/df={:.4} < 1.5 → uniform", bucket_reduced_chi2);
     } else {
-        eprintln!("  WARN: Bucket histogram deviation exceeds 1.0%");
+        eprintln!("  FAIL: Bucket chi2/df={:.4} >= 1.5 → NOT uniform", bucket_reduced_chi2);
     }
 
     let mut canonical_in_topk: HashMap<[u8; 5], u32> = HashMap::new();
@@ -2083,20 +2089,21 @@ fn run_debug_range(args: &[String]) {
     for (can, &expected_combos) in &canonical_in_topk {
         let observed = *canonical_counts.get(can).unwrap_or(&0) as f64;
         let expected = expected_combos as f64 / top_k as f64 * samples as f64;
-        if expected < 1.0 { continue; }
+        if expected < 5.0 { continue; }
         let ratio_dev = ((observed - expected) / expected).abs();
         if ratio_dev > max_ratio_dev { max_ratio_dev = ratio_dev; }
         chi2 += (observed - expected) * (observed - expected) / expected;
         num_checked += 1;
     }
 
-    eprintln!("  Max canonical freq deviation from expected: {:.3}%", max_ratio_dev * 100.0);
-    eprintln!("  Chi-squared ({} classes): {:.1}", num_checked, chi2);
-    let canonical_proportional = max_ratio_dev < 0.10;
+    let canon_reduced_chi2 = if num_checked > 1 { chi2 / (num_checked as f64 - 1.0) } else { 0.0 };
+    eprintln!("  Max single-class freq deviation: {:.3}%", max_ratio_dev * 100.0);
+    eprintln!("  Chi-squared ({} classes): {:.1} (reduced={:.4})", num_checked, chi2, canon_reduced_chi2);
+    let canonical_proportional = canon_reduced_chi2 < 1.5;
     if canonical_proportional {
-        eprintln!("  PASS: Canonical freq proportional to combo count in topK");
+        eprintln!("  PASS: Canonical chi2/df={:.4} < 1.5 → freq proportional to combo count", canon_reduced_chi2);
     } else {
-        eprintln!("  WARN: Canonical freq not proportional (max dev > 10%)");
+        eprintln!("  FAIL: Canonical chi2/df={:.4} >= 1.5 → NOT proportional", canon_reduced_chi2);
     }
 
     let top3: Vec<_> = {
@@ -2139,10 +2146,10 @@ fn run_debug_range(args: &[String]) {
     }
 
     if json_output {
-        println!("{{\"ok\":true,\"mode\":\"concrete_combo_uniform\",\"totalConcrete\":2598960,\"topK\":{},\"rangePct\":{},\"samples\":{},\"buckets\":{},\"maxBucketDevPct\":{:.4},\"minBucketDevPct\":{:.4},\"bucketUniform\":{},\"canonicalClasses\":{},\"canonicalMaxDevPct\":{:.4},\"canonicalProportional\":{},\"overallPass\":{}}}",
+        println!("{{\"ok\":true,\"mode\":\"concrete_combo_uniform\",\"totalConcrete\":2598960,\"topK\":{},\"rangePct\":{},\"samples\":{},\"buckets\":{},\"maxBucketDevPct\":{:.4},\"minBucketDevPct\":{:.4},\"bucketChi2\":{:.2},\"bucketReducedChi2\":{:.4},\"bucketUniform\":{},\"canonicalClasses\":{},\"canonicalMaxDevPct\":{:.4},\"canonicalChi2\":{:.2},\"canonicalReducedChi2\":{:.4},\"canonicalProportional\":{},\"overallPass\":{}}}",
             top_k, villain_pct, samples, num_buckets,
-            max_dev, min_dev, bucket_uniform,
-            total_canonical, max_ratio_dev * 100.0, canonical_proportional, overall);
+            max_dev, min_dev, bucket_chi2, bucket_reduced_chi2, bucket_uniform,
+            total_canonical, max_ratio_dev * 100.0, chi2, canon_reduced_chi2, canonical_proportional, overall);
     }
 }
 
