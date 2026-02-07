@@ -1,0 +1,107 @@
+Implement a full authentication system with 3 sign-in methods:
+1) Google (already exists) — keep working
+2) Yandex ID OAuth
+3) Email + Password with email verification (confirm account via email link)
+
+Tech constraints:
+- This is a web app (React client + Node/Express server).
+- Use secure best practices: password hashing, email verification, rate limits.
+- Keep current users and sessions working.
+
+REQUIREMENTS
+
+A) User model / DB
+- Create/extend users table with:
+  - id (uuid)
+  - email (unique, nullable for OAuth-only accounts but recommended to store)
+  - emailVerified (boolean, default false)
+  - passwordHash (nullable)
+  - authProviders (e.g., ["google","yandex","password"])
+  - googleSub (nullable, unique)
+  - yandexSub (nullable, unique)
+  - createdAt, updatedAt
+- Create email_verification_tokens table:
+  - id (uuid)
+  - userId (fk)
+  - tokenHash (unique)
+  - expiresAt
+  - createdAt
+- Optional: password_reset_tokens table with same structure.
+
+B) Sessions
+- Keep existing session mechanism (cookie session / JWT) but ensure:
+  - HttpOnly cookies
+  - Secure cookie in production
+  - SameSite=Lax
+- Add endpoints:
+  - POST /api/auth/logout
+  - GET  /api/auth/me (current user info)
+
+C) Email + Password signup/login (with verification)
+Endpoints:
+1) POST /api/auth/signup
+   Body: { email, password }
+   - Validate email format
+   - Enforce password rules (min 8-10 chars)
+   - Hash password with argon2id or bcrypt (argon2 preferred)
+   - Create user with emailVerified=false
+   - Create verification token (random 32+ bytes), store only tokenHash
+   - Send verification email with link:
+     https://<APP_DOMAIN>/verify-email?token=<token>&email=<email>
+   - Response: { ok:true, message:"Check your email to verify." }
+
+2) GET /api/auth/verify-email?token=...&email=...
+   - Hash token and match non-expired tokenHash
+   - Set emailVerified=true
+   - Delete token
+   - Auto-login OR show success screen prompting login
+
+3) POST /api/auth/login
+   Body: { email, password }
+   - Reject if user not found
+   - Verify password
+   - If emailVerified=false -> return error "Please verify email"
+   - Create session and return { ok:true }
+
+D) Yandex ID OAuth
+- Implement OAuth 2.0 Authorization Code flow.
+- Add env vars:
+  - YANDEX_CLIENT_ID
+  - YANDEX_CLIENT_SECRET
+  - YANDEX_REDIRECT_URI (e.g. https://<APP_DOMAIN>/api/auth/yandex/callback)
+- Add endpoints:
+  - GET /api/auth/yandex/start
+    -> redirect to Yandex authorize URL (scope: login:email or equivalent)
+  - GET /api/auth/yandex/callback?code=...
+    -> exchange code for token, fetch user profile, get stable user id (sub)
+    -> find existing user by yandexSub or email (if provided)
+    -> if no user, create user (emailVerified=true if provider guarantees email; otherwise store email + verified=false)
+    -> create session and redirect to app
+- Store yandexSub and provider in user record.
+
+E) UI/UX (React)
+- Add Auth page with:
+  - "Continue with Google"
+  - "Continue with Yandex"
+  - Tabs: Login / Sign up
+- Sign up form:
+  - email, password, confirm password
+  - show message: "We sent a verification email"
+- Verify email page:
+  - reads token+email from URL
+  - calls /api/auth/verify-email
+  - shows success/fail
+- Login form:
+  - email, password
+  - errors: wrong password, verify email required
+- Optional next: "Forgot password" flow
+
+F) Security
+- Rate limit auth endpoints (signup/login/verify) to reduce abuse.
+- Prevent account enumeration (generic error messages).
+- Use argon2id (or bcrypt with strong cost).
+- Store only hashed verification tokens.
+- Token expiry: 1 hour (or 24h).
+- Email sending: use a transactional provider (SendGrid/Mailgun/AWS SES) or SMTP.
+  - Add env vars:
+    - SMTP_HOST, SMTP_PORT, SMTP
