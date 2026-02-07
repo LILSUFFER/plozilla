@@ -46,3 +46,6 @@ integrations = ["javascript_log_in_with_replit:2.0.0"]
 
 [userenv.development]
 ALLOW_TEST_RANKINGS = "true"
+
+[userenv.shared]
+EQUITY_ENGINE_URL = "http://46.225.5.63:8080"
