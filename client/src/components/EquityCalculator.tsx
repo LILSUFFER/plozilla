@@ -1065,17 +1065,9 @@ export function EquityCalculator() {
   })();
 
   return (
-    <div className={cn(
-      'h-full',
-      showRightPanel
-        ? 'grid grid-cols-1 xl:grid-cols-[1fr_420px] gap-0 overflow-hidden'
-        : ''
-    )} data-testid="calculator-layout">
-      <div className={cn(
-        showRightPanel ? 'overflow-y-auto xl:pr-4' : '',
-        'min-h-0'
-      )}>
-        <UICard className="border-0 shadow-none xl:border xl:shadow-sm">
+    <div className="h-full grid grid-cols-1 xl:grid-cols-[1fr_420px] gap-4 overflow-hidden" data-testid="calculator-layout">
+      <div className="overflow-y-auto min-h-0">
+        <UICard>
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
               <Calculator className="w-4 h-4" />
@@ -1471,11 +1463,21 @@ export function EquityCalculator() {
         </UICard>
       </div>
 
-      {showRightPanel && (
-        <div className="hidden xl:block border-l bg-muted/20 overflow-y-auto min-h-0 px-4 pt-0 pb-4" data-testid="panel-breakdown-right">
-          {breakdownPanel}
-        </div>
-      )}
+      <div className="hidden xl:flex flex-col min-h-0" data-testid="panel-breakdown-right">
+        <UICard className="flex-1 overflow-y-auto min-h-0">
+          {showRightPanel ? (
+            <CardContent className="pt-4 pb-4">
+              {breakdownPanel}
+            </CardContent>
+          ) : (
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-6">
+              <BarChart3 className="w-10 h-10 mb-3 opacity-40" />
+              <p className="text-sm font-medium">{t('breakdownTitle')}</p>
+              <p className="text-xs mt-1 text-center opacity-70">{t('breakdownEmpty')}</p>
+            </div>
+          )}
+        </UICard>
+      </div>
     </div>
   );
 }
