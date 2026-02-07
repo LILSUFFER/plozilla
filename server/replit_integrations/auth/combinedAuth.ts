@@ -217,18 +217,20 @@ export async function setupCombinedAuth(app: Express) {
   );
 
   // === YANDEX AUTH ROUTES ===
+  function getYandexRedirectUri(req: any): string {
+    if (process.env.YANDEX_REDIRECT_URI) return process.env.YANDEX_REDIRECT_URI;
+    const host = req.get("host") || req.hostname;
+    const protocol = req.protocol === "https" || req.get("x-forwarded-proto") === "https" ? "https" : "http";
+    return `${protocol}://${host}/api/auth/yandex/callback`;
+  }
+
   app.get("/api/auth/yandex/start", (req, res) => {
     const clientId = process.env.YANDEX_CLIENT_ID;
     if (!clientId) {
       return res.redirect("/auth?error=yandex_not_configured");
     }
-    const redirectUri = process.env.YANDEX_REDIRECT_URI || (
-      process.env.NODE_ENV === "production"
-        ? "https://plozilla.com/api/auth/yandex/callback"
-        : process.env.REPLIT_DEV_DOMAIN
-          ? `https://${process.env.REPLIT_DEV_DOMAIN}/api/auth/yandex/callback`
-          : "http://localhost:5000/api/auth/yandex/callback"
-    );
+    const redirectUri = getYandexRedirectUri(req);
+    console.log("Yandex OAuth start, redirect_uri:", redirectUri);
     const state = crypto.randomBytes(16).toString("hex");
     (req.session as any).yandexState = state;
     const url = `https://oauth.yandex.ru/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`;
@@ -244,13 +246,7 @@ export async function setupCombinedAuth(app: Express) {
 
       const clientId = process.env.YANDEX_CLIENT_ID!;
       const clientSecret = process.env.YANDEX_CLIENT_SECRET!;
-      const redirectUri = process.env.YANDEX_REDIRECT_URI || (
-        process.env.NODE_ENV === "production"
-          ? "https://plozilla.com/api/auth/yandex/callback"
-          : process.env.REPLIT_DEV_DOMAIN
-            ? `https://${process.env.REPLIT_DEV_DOMAIN}/api/auth/yandex/callback`
-            : "http://localhost:5000/api/auth/yandex/callback"
-      );
+      const redirectUri = getYandexRedirectUri(req);
 
       const tokenResponse = await fetch("https://oauth.yandex.ru/token", {
         method: "POST",
