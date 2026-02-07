@@ -331,7 +331,7 @@ export async function setupCombinedAuth(app: Express) {
   // === EMAIL + PASSWORD ROUTES ===
   app.post("/api/auth/signup", authLimiter, async (req, res) => {
     try {
-      const { email, password } = req.body;
+      const { email, password, name } = req.body;
 
       if (!email || !EMAIL_REGEX.test(email)) {
         return res.status(400).json({ ok: false, error: "Invalid email address." });
@@ -347,7 +347,8 @@ export async function setupCombinedAuth(app: Express) {
       }
 
       const passwordHash = await bcrypt.hash(password, 12);
-      const user = await authStorage.createEmailUser(normalizedEmail, passwordHash);
+      const displayName = typeof name === "string" && name.trim() ? name.trim() : undefined;
+      const user = await authStorage.createEmailUser(normalizedEmail, passwordHash, displayName);
 
       const token = generateToken();
       const tokenHash = hashToken(token);

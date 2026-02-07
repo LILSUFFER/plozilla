@@ -9,7 +9,7 @@ import { LanguageToggle } from "@/components/LanguageToggle";
 import { useTranslation } from "@/lib/i18n";
 import { useAuth } from "@/hooks/use-auth";
 import { SiGoogle, SiTelegram } from "react-icons/si";
-import { Mail, Lock, Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Mail, Lock, User, Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
 
 type AuthTab = "login" | "signup";
 
@@ -19,6 +19,7 @@ export default function AuthPage() {
   const [, navigate] = useLocation();
 
   const [tab, setTab] = useState<AuthTab>("login");
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -74,7 +75,7 @@ export default function AuthPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify(tab === "signup" ? { email, password, name: name.trim() || undefined } : { email, password }),
       });
       const data = await res.json();
 
@@ -216,6 +217,24 @@ export default function AuthPage() {
             )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
+              {tab === "signup" && !showForgotPassword && (
+                <div className="space-y-2">
+                  <Label htmlFor="name">{t("authName")}</Label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      id="name"
+                      data-testid="input-auth-name"
+                      type="text"
+                      placeholder={t("authNamePlaceholder")}
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-2">
                 <Label htmlFor="email">{t("authEmail")}</Label>
                 <div className="relative">

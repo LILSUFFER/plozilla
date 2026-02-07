@@ -8,7 +8,7 @@ export interface IAuthStorage {
   getUserByGoogleSub(googleSub: string): Promise<User | undefined>;
   getUserByYandexSub(yandexSub: string): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
-  createEmailUser(email: string, passwordHash: string): Promise<User>;
+  createEmailUser(email: string, passwordHash: string, displayName?: string): Promise<User>;
   setEmailVerified(userId: string): Promise<void>;
   updatePassword(userId: string, passwordHash: string): Promise<void>;
   addAuthProvider(userId: string, provider: string): Promise<void>;
@@ -88,7 +88,7 @@ class AuthStorage implements IAuthStorage {
     return newUser;
   }
 
-  async createEmailUser(email: string, passwordHash: string): Promise<User> {
+  async createEmailUser(email: string, passwordHash: string, displayName?: string): Promise<User> {
     const [newUser] = await db
       .insert(users)
       .values({
@@ -96,6 +96,7 @@ class AuthStorage implements IAuthStorage {
         passwordHash,
         emailVerified: false,
         authProviders: ["password"],
+        ...(displayName ? { firstName: displayName } : {}),
       })
       .returning();
     return newUser;
