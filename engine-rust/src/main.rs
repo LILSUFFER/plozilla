@@ -1206,7 +1206,7 @@ fn run_equity(args: &[String]) {
     if !json_output { eprintln!("       Done in {:.2}s", t0.elapsed().as_secs_f64()); }
 
     if !json_output { eprintln!("[2/2] Running deterministic MC..."); }
-    let hero_2s = two_card_subsets(&canonical);
+    let hero_2s = two_card_subsets(&hand);
     let remaining: Vec<u8> = (0..52u8).filter(|c| !excluded.contains(c)).collect();
 
     let num_threads = num_cpus();
