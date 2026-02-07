@@ -1538,6 +1538,282 @@ fn run_precompute_all(args: &[String]) {
     eprintln!("  Done!");
 }
 
+fn run_breakdown(args: &[String]) {
+    let hand_str = parse_flag(args, "--hand").unwrap_or_else(|| {
+        eprintln!("Usage: plo5_ranker breakdown --hand <hand> --board <3or4cards> [--dead <cards>] [--trials-budget N] [--seed S] [--villain-range 100%|topN%] [--rank-file path] [--json]");
+        std::process::exit(1);
+    });
+    let trials_budget: u64 = parse_flag(args, "--trials-budget")
+        .and_then(|s| s.parse().ok()).unwrap_or(600_000);
+    let seed: u64 = parse_flag(args, "--seed")
+        .and_then(|s| s.parse().ok()).unwrap_or(12345);
+    let json_output = args.iter().any(|a| a == "--json");
+    let board_str = parse_flag(args, "--board").unwrap_or_default();
+    let dead_str = parse_flag(args, "--dead").unwrap_or_default();
+    let villain_range_str = parse_flag(args, "--villain-range").unwrap_or_else(|| "100%".into());
+    let rank_file = parse_flag(args, "--rank-file").unwrap_or_else(|| "public/rank_index_all_2598960.u32".into());
+
+    let villain_pct = parse_villain_range(&villain_range_str).unwrap_or_else(|| {
+        if json_output {
+            println!("{{\"ok\":false,\"error\":\"Invalid villain range: '{}'\"}}", villain_range_str);
+            std::process::exit(0);
+        }
+        eprintln!("Invalid villain range: '{}'", villain_range_str);
+        std::process::exit(1);
+    });
+    let is_range_restricted = villain_pct < 100.0;
+
+    let hand = parse_hand(&hand_str).unwrap_or_else(|| {
+        if json_output {
+            println!("{{\"ok\":false,\"error\":\"Could not parse hand: {} (need exactly 5 cards)\"}}", hand_str);
+            std::process::exit(0);
+        }
+        eprintln!("Could not parse hand: {}", hand_str);
+        std::process::exit(1);
+    });
+
+    let board_cards = parse_cards_vec(&board_str);
+    let dead_cards = parse_cards_vec(&dead_str);
+
+    if board_cards.len() != 3 && board_cards.len() != 4 {
+        if json_output {
+            println!("{{\"ok\":false,\"error\":\"Breakdown requires board of 3 (flop) or 4 (turn) cards, got {}\"}}", board_cards.len());
+            std::process::exit(0);
+        }
+        eprintln!("Breakdown requires board of 3 (flop) or 4 (turn) cards, got {}", board_cards.len());
+        std::process::exit(1);
+    }
+
+    let mut excluded: Vec<u8> = Vec::new();
+    for &c in hand.iter() { excluded.push(c); }
+    for &c in &board_cards { excluded.push(c); }
+    for &c in &dead_cards { excluded.push(c); }
+    excluded.sort();
+    excluded.dedup();
+    if excluded.len() != hand.len() + board_cards.len() + dead_cards.len() {
+        if json_output {
+            println!("{{\"ok\":false,\"error\":\"Duplicate cards found among hand, board, and dead cards\"}}");
+            std::process::exit(0);
+        }
+        eprintln!("Duplicate cards found");
+        std::process::exit(1);
+    }
+
+    let excluded_bm = card_bitmap(&excluded);
+    let candidate_cards: Vec<u8> = (0..52u8)
+        .filter(|c| excluded_bm & (1u64 << (*c as u64)) == 0)
+        .collect();
+    let num_candidates = candidate_cards.len();
+    let is_turn_breakdown = board_cards.len() == 3;
+
+    let trials_per_card = (trials_budget / num_candidates as u64).max(100);
+
+    let rank_pool: Vec<[u8; 5]> = if is_range_restricted {
+        let rank_index = load_rank_index(&rank_file);
+        let top_count = ((villain_pct / 100.0) * 2598960.0).ceil() as usize;
+        let top_count = top_count.min(2598960);
+        rank_index[..top_count].iter().map(|&idx| index_to_hand(idx)).collect()
+    } else {
+        Vec::new()
+    };
+
+    let t0 = Instant::now();
+    if !json_output { eprintln!("[1/2] Initializing eval table..."); }
+    let table = init_eval_table();
+    if !json_output {
+        eprintln!("       Done in {:.2}s", t0.elapsed().as_secs_f64());
+        eprintln!("[2/2] Computing breakdown for {} candidate cards ({} trials each)...",
+            num_candidates, trials_per_card);
+        eprintln!("       Board: {} cards, next street: {}",
+            board_cards.len(), if is_turn_breakdown { "turn" } else { "river" });
+    }
+
+    let hero_2s = two_card_subsets(&hand);
+    let hero_bm = card_bitmap(&hand);
+    let board_bm = card_bitmap(&board_cards);
+    let num_threads = num_cpus();
+
+    let mut crn_scenarios: Vec<(Vec<u8>, Vec<u64>)> = Vec::new();
+    if is_turn_breakdown {
+        let mut scenario_rng = Xorshift64::new(mix_seed(seed.wrapping_add(999)));
+        for _ in 0..trials_per_card {
+            let river_card_idx = scenario_rng.gen_range(52);
+            let river_card = river_card_idx as u8;
+            let villain_seed = scenario_rng.next();
+            crn_scenarios.push((vec![river_card], vec![villain_seed]));
+        }
+    } else {
+        let mut scenario_rng = Xorshift64::new(mix_seed(seed.wrapping_add(999)));
+        for _ in 0..trials_per_card {
+            let villain_seed = scenario_rng.next();
+            crn_scenarios.push((vec![], vec![villain_seed]));
+        }
+    }
+
+    let chunk_size = (num_candidates + num_threads - 1) / num_threads;
+
+    let results: Vec<Vec<(u8, f64, u64)>> = thread::scope(|s| {
+        let handles: Vec<_> = (0..num_threads).map(|t| {
+            let table_ref = &table;
+            let hero_2s_ref = &hero_2s;
+            let board_cards_ref = &board_cards;
+            let candidate_cards_ref = &candidate_cards;
+            let rank_pool_ref = &rank_pool;
+            let use_range = is_range_restricted;
+            let scenarios_ref = &crn_scenarios;
+            s.spawn(move || {
+                let start = t * chunk_size;
+                let end = ((t + 1) * chunk_size).min(num_candidates);
+                let mut thread_results: Vec<(u8, f64, u64)> = Vec::new();
+
+                for ci in start..end {
+                    let next_card = candidate_cards_ref[ci];
+                    let next_bm = 1u64 << (next_card as u64);
+                    let mut full_board_base: Vec<u8> = board_cards_ref.to_vec();
+                    full_board_base.push(next_card);
+
+                    let combined_bm_base = hero_bm | board_bm | next_bm;
+
+                    let mut wins = 0.0f64;
+                    let mut count = 0u64;
+
+                    if is_turn_breakdown {
+                        for sc in scenarios_ref.iter() {
+                            let river_card = sc.0[0];
+                            let river_bm = 1u64 << (river_card as u64);
+                            if river_bm & combined_bm_base != 0 { continue; }
+                            let combined_bm = combined_bm_base | river_bm;
+
+                            let mut full_board = full_board_base.clone();
+                            full_board.push(river_card);
+                            full_board.sort();
+                            let board_3s = three_card_subsets_from_slice(&full_board);
+                            let hero_rank = eval_best(hero_2s_ref, &board_3s, table_ref);
+
+                            let vseed = sc.1[0];
+                            if use_range {
+                                let pool_len = rank_pool_ref.len();
+                                let mut vrng = Xorshift64::new(mix_seed(vseed));
+                                let mut found = false;
+                                let mut villain_arr = [0u8; 5];
+                                for _ in 0..200 {
+                                    let vi = vrng.gen_range(pool_len);
+                                    let cand = rank_pool_ref[vi];
+                                    let cand_bm = card_bitmap(&cand);
+                                    if cand_bm & combined_bm != 0 { continue; }
+                                    villain_arr = cand;
+                                    found = true;
+                                    break;
+                                }
+                                if !found { continue; }
+                                let villain_2s = two_card_subsets(&villain_arr);
+                                let villain_rank = eval_best(&villain_2s, &board_3s, table_ref);
+                                if hero_rank < villain_rank { wins += 1.0; }
+                                else if hero_rank == villain_rank { wins += 0.5; }
+                                count += 1;
+                            } else {
+                                let pool: Vec<u8> = (0..52u8)
+                                    .filter(|c| combined_bm & (1u64 << (*c as u64)) == 0)
+                                    .collect();
+                                let mut vrng = Xorshift64::new(mix_seed(vseed));
+                                let villain = sample_villain(&pool, &mut vrng);
+                                let villain_2s = two_card_subsets(&villain);
+                                let villain_rank = eval_best(&villain_2s, &board_3s, table_ref);
+                                if hero_rank < villain_rank { wins += 1.0; }
+                                else if hero_rank == villain_rank { wins += 0.5; }
+                                count += 1;
+                            }
+                        }
+                    } else {
+                        full_board_base.sort();
+                        let board_3s = three_card_subsets_from_slice(&full_board_base);
+                        let hero_rank = eval_best(hero_2s_ref, &board_3s, table_ref);
+
+                        for sc in scenarios_ref.iter() {
+                            let vseed = sc.1[0];
+                            if use_range {
+                                let pool_len = rank_pool_ref.len();
+                                let mut vrng = Xorshift64::new(mix_seed(vseed));
+                                let mut found = false;
+                                let mut villain_arr = [0u8; 5];
+                                for _ in 0..200 {
+                                    let vi = vrng.gen_range(pool_len);
+                                    let cand = rank_pool_ref[vi];
+                                    let cand_bm = card_bitmap(&cand);
+                                    if cand_bm & combined_bm_base != 0 { continue; }
+                                    villain_arr = cand;
+                                    found = true;
+                                    break;
+                                }
+                                if !found { continue; }
+                                let villain_2s = two_card_subsets(&villain_arr);
+                                let villain_rank = eval_best(&villain_2s, &board_3s, table_ref);
+                                if hero_rank < villain_rank { wins += 1.0; }
+                                else if hero_rank == villain_rank { wins += 0.5; }
+                                count += 1;
+                            } else {
+                                let pool: Vec<u8> = (0..52u8)
+                                    .filter(|c| combined_bm_base & (1u64 << (*c as u64)) == 0)
+                                    .collect();
+                                let mut vrng = Xorshift64::new(mix_seed(vseed));
+                                let villain = sample_villain(&pool, &mut vrng);
+                                let villain_2s = two_card_subsets(&villain);
+                                let villain_rank = eval_best(&villain_2s, &board_3s, table_ref);
+                                if hero_rank < villain_rank { wins += 1.0; }
+                                else if hero_rank == villain_rank { wins += 0.5; }
+                                count += 1;
+                            }
+                        }
+                    }
+
+                    let eq = if count > 0 { wins / count as f64 } else { 0.5 };
+                    thread_results.push((next_card, eq, count));
+                }
+                thread_results
+            })
+        }).collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+
+    let mut all_results: Vec<(u8, f64, u64)> = results.into_iter().flatten().collect();
+    all_results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    let elapsed = t0.elapsed().as_secs_f64();
+    let elapsed_ms = (elapsed * 1000.0) as u64;
+    let total_trials: u64 = all_results.iter().map(|r| r.2).sum();
+
+    let excluded_names: Vec<String> = excluded.iter().map(|&c| card_name(c)).collect();
+
+    if json_output {
+        print!("{{\"ok\":true,\"street\":\"{}\",\"items\":[",
+            if is_turn_breakdown { "turn" } else { "river" });
+        for (i, &(card, eq, trials)) in all_results.iter().enumerate() {
+            if i > 0 { print!(","); }
+            print!("{{\"card\":\"{}\",\"equity\":{:.6},\"trials\":{}}}",
+                card_name(card), eq, trials);
+        }
+        print!("],\"excluded\":[");
+        for (i, name) in excluded_names.iter().enumerate() {
+            if i > 0 { print!(","); }
+            print!("\"{}\"", name);
+        }
+        println!("],\"totalTrials\":{},\"trialsPerCard\":{},\"numCandidates\":{},\"seed\":{},\"elapsedMs\":{},\"villainRange\":\"{}\"}}",
+            total_trials, trials_per_card, num_candidates, seed, elapsed_ms, villain_range_str);
+    } else {
+        eprintln!();
+        eprintln!("EQ Breakdown by next card ({}→{}):",
+            if is_turn_breakdown { "Flop" } else { "Turn" },
+            if is_turn_breakdown { "Turn" } else { "River" });
+        eprintln!("  {:>4}  {:<6}  {:>10}  {:>8}", "#", "Card", "Equity%", "Trials");
+        eprintln!("  ────  ──────  ──────────  ────────");
+        for (i, &(card, eq, trials)) in all_results.iter().enumerate() {
+            eprintln!("  {:>4}  {:<6}  {:>9.3}%  {:>8}", i + 1, card_name(card), eq * 100.0, trials);
+        }
+        eprintln!();
+        eprintln!("  Total trials: {}, Time: {:.1}s, Seed: {}", total_trials, elapsed, seed);
+    }
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
@@ -1581,12 +1857,13 @@ fn main() {
         "precompute" => run_precompute(&args[2..]),
         "precompute_all" => run_precompute_all(&args[2..]),
         "equity" => run_equity(&args[2..]),
+        "breakdown" => run_breakdown(&args[2..]),
         "accuracy" => run_accuracy(&args[2..]),
         "baseline" => run_baseline(&args[2..]),
         "validate" => run_validate(&args[2..]),
         "info" => run_info(),
         other => {
-            eprintln!("Unknown command: {}. Use precompute, precompute_all, equity, accuracy, baseline, validate, or info.", other);
+            eprintln!("Unknown command: {}. Use precompute, precompute_all, equity, breakdown, accuracy, baseline, validate, or info.", other);
             std::process::exit(1);
         }
     }
