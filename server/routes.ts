@@ -15,7 +15,7 @@ import {
   lookupByCanonicalKey,
   getRankingsStatus,
 } from "./rankings-cache";
-import { runEquity, runBreakdown, type EquityRequest, type BreakdownRequest } from "./equity";
+import { runEquity, runBreakdown, getEquityCacheStats, type EquityRequest, type BreakdownRequest } from "./equity";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -62,6 +62,11 @@ export async function registerRoutes(
     }
     const hands = getAllHandCards();
     return res.json({ ready: true, hands, totalHands: getRankingsTotal() });
+  });
+
+  app.get('/api/equity/status', (_req, res) => {
+    const stats = getEquityCacheStats();
+    res.json(stats);
   });
 
   app.post('/api/equity', async (req, res) => {
