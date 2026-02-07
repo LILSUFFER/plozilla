@@ -66,7 +66,7 @@ echo
 
 # ── Test 3: Duplicate card validation (hero overlaps board) ─
 echo "Test 3: Duplicate card validation (hero=AcAdKhQh5s board=AcKd3c)"
-RESP=$(curl -sf -X POST "$URL" \
+RESP=$(curl -s -X POST "$URL" \
   -H 'Content-Type: application/json' \
   -d '{"hero":"AcAdKhQh5s","villain":"100%","board":"AcKd3c","trials":100000,"seed":12345}')
 
