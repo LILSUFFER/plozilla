@@ -305,6 +305,21 @@ async function remoteEquity(
     if (data.ok) {
       data.engineMode = "remote";
       data.villainRange = villain;
+      if (data.winPct === undefined && data.wins !== undefined && data.trials > 0) {
+        data.winPct = (data.wins / data.trials) * 100;
+      }
+      if (data.tiePct === undefined && data.ties !== undefined && data.trials > 0) {
+        data.tiePct = (data.ties / data.trials) * 100;
+      }
+      if (data.wins !== undefined && data.ties !== undefined && data.trials > 0) {
+        const expectedEquity = (data.wins + 0.5 * data.ties) / data.trials;
+        const delta = Math.abs(data.equity - expectedEquity);
+        if (delta > 0.001) {
+          console.error(`[equity] REMOTE ASSERTION: equity(${data.equity}) != (wins+0.5*ties)/total(${expectedEquity}), delta=${delta}`);
+          data.equity = expectedEquity;
+          data.equityPct = expectedEquity * 100;
+        }
+      }
     }
     return data as EquityResponse;
   } catch (err: any) {
