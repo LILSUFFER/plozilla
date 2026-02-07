@@ -15,7 +15,7 @@ import {
   lookupByCanonicalKey,
   getRankingsStatus,
 } from "./rankings-cache";
-import { runEquity, type EquityRequest } from "./equity";
+import { runEquity, runBreakdown, type EquityRequest, type BreakdownRequest } from "./equity";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -68,6 +68,20 @@ export async function registerRoutes(
     try {
       const body = req.body as EquityRequest;
       const result = await runEquity(body);
+      if (result.ok) {
+        res.json(result);
+      } else {
+        res.status(400).json(result);
+      }
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: `Internal error: ${err.message}` });
+    }
+  });
+
+  app.post('/api/equity/breakdown', async (req, res) => {
+    try {
+      const body = req.body as BreakdownRequest;
+      const result = await runBreakdown(body);
       if (result.ok) {
         res.json(result);
       } else {

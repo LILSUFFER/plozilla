@@ -350,6 +350,215 @@ function spawnEquity(
   });
 }
 
+export interface BreakdownRequest {
+  hero: string;
+  board: string;
+  dead?: string;
+  trialsBudget?: number;
+  seed?: number;
+  villainRange?: string;
+}
+
+interface BreakdownItem {
+  card: string;
+  equity: number;
+  trials: number;
+}
+
+interface BreakdownResult {
+  ok: true;
+  street: string;
+  items: BreakdownItem[];
+  excluded: string[];
+  totalTrials: number;
+  trialsPerCard: number;
+  numCandidates: number;
+  seed: number;
+  elapsedMs: number;
+  villainRange: string;
+}
+
+type BreakdownResponse = BreakdownResult | EquityError;
+
+function validateBreakdownRequest(req: BreakdownRequest): string | null {
+  if (!req.hero || typeof req.hero !== "string") {
+    return "Missing or invalid 'hero' field";
+  }
+  const cardPattern = /^[2-9TJQKA][cdhs]$/;
+  const heroCards = parseCardString(req.hero);
+  if (heroCards.length !== 5) {
+    return `Hero must have exactly 5 cards, got ${heroCards.length}`;
+  }
+  for (const c of heroCards) {
+    if (!cardPattern.test(c)) return `Invalid card in hero: '${c}'`;
+  }
+
+  if (!req.board || typeof req.board !== "string") {
+    return "Missing or invalid 'board' field";
+  }
+  const boardCards = parseCardString(req.board);
+  if (boardCards.length !== 3 && boardCards.length !== 4) {
+    return `Breakdown requires board of 3 (flop) or 4 (turn) cards, got ${boardCards.length}`;
+  }
+
+  if (req.villainRange) {
+    const vr = parseVillainRange(req.villainRange);
+    if (!vr.valid) {
+      return `Invalid villain range: '${req.villainRange}'`;
+    }
+    if (vr.isRange && !isRankFileAvailable()) {
+      return "Rank index file not available for range-based villain";
+    }
+  }
+
+  if (req.trialsBudget !== undefined) {
+    if (!Number.isInteger(req.trialsBudget) || req.trialsBudget < 1000 || req.trialsBudget > 5000000) {
+      return "trialsBudget must be between 1,000 and 5,000,000";
+    }
+  }
+
+  if (req.seed !== undefined) {
+    if (!Number.isInteger(req.seed) || req.seed < 0) {
+      return "Seed must be a non-negative integer";
+    }
+  }
+
+  const allCards = [...heroCards, ...boardCards];
+  if (req.dead && req.dead.trim()) {
+    allCards.push(...parseCardString(req.dead));
+  }
+  const unique = new Set(allCards);
+  if (unique.size !== allCards.length) {
+    return "Duplicate cards found across hero, board, and dead cards";
+  }
+
+  return null;
+}
+
+export async function runBreakdown(req: BreakdownRequest): Promise<BreakdownResponse> {
+  const validationError = validateBreakdownRequest(req);
+  if (validationError) {
+    return { ok: false, error: validationError };
+  }
+
+  if (activeJobs >= MAX_CONCURRENT) {
+    return { ok: false, error: "Server busy, please try again in a moment" };
+  }
+
+  activeJobs++;
+  try {
+    let result: BreakdownResponse;
+    if (REMOTE_URL) {
+      result = await remoteBreakdown(req);
+    } else {
+      result = await spawnBreakdown(req);
+    }
+    return result;
+  } finally {
+    activeJobs--;
+  }
+}
+
+async function remoteBreakdown(req: BreakdownRequest): Promise<BreakdownResponse> {
+  const url = REMOTE_URL.replace(/\/$/, "") + "/api/equity/breakdown";
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    return await resp.json() as BreakdownResponse;
+  } catch (err: any) {
+    clearTimeout(timer);
+    if (err.name === "AbortError") {
+      return { ok: false, error: `Remote engine timed out` };
+    }
+    return { ok: false, error: `Remote engine error: ${err.message}` };
+  }
+}
+
+function spawnBreakdown(req: BreakdownRequest): Promise<BreakdownResponse> {
+  return new Promise((resolve) => {
+    const trialsBudget = req.trialsBudget || 600000;
+    const seed = req.seed ?? 12345;
+    const board = req.board.trim();
+    const dead = req.dead?.trim() || "";
+    const villainRange = req.villainRange?.trim() || "100%";
+    const vr = parseVillainRange(villainRange);
+    const villainRangeArg = vr.isRange ? `top${vr.pct}%` : "100%";
+
+    const args = [
+      "breakdown",
+      "--hand", req.hero,
+      "--board", board,
+      "--trials-budget", String(trialsBudget),
+      "--seed", String(seed),
+      "--villain-range", villainRangeArg,
+      "--json",
+    ];
+    if (vr.isRange) {
+      args.push("--rank-file", RANK_FILE);
+    }
+    if (dead) {
+      args.push("--dead", dead);
+    }
+
+    let proc: ChildProcess;
+    try {
+      proc = spawn(BINARY_PATH, args, {
+        stdio: ["ignore", "pipe", "pipe"],
+        timeout: TIMEOUT_MS,
+      });
+    } catch (err: any) {
+      resolve({ ok: false, error: `Failed to start engine: ${err.message}` });
+      return;
+    }
+
+    let stdout = "";
+    let stderr = "";
+    let resolved = false;
+
+    const timer = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        proc.kill("SIGKILL");
+        resolve({ ok: false, error: "Breakdown timed out (120s limit)" });
+      }
+    }, TIMEOUT_MS);
+
+    proc.stdout?.on("data", (data: Buffer) => { stdout += data.toString(); });
+    proc.stderr?.on("data", (data: Buffer) => { stderr += data.toString(); });
+
+    proc.on("error", (err: Error) => {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timer);
+        resolve({ ok: false, error: `Engine error: ${err.message}` });
+      }
+    });
+
+    proc.on("close", (code: number | null) => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timer);
+      if (code !== 0 && !stdout.trim()) {
+        resolve({ ok: false, error: `Engine exited with code ${code}. ${stderr.slice(0, 200)}` });
+        return;
+      }
+      try {
+        const parsed = JSON.parse(stdout.trim());
+        resolve(parsed as BreakdownResponse);
+      } catch {
+        resolve({ ok: false, error: `Failed to parse engine output: ${stdout.slice(0, 200)}` });
+      }
+    });
+  });
+}
+
 export function getEquityCacheStats() {
   return {
     size: cache.size,
