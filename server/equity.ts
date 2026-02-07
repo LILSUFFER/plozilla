@@ -37,6 +37,9 @@ interface EquityResult {
   seed: number;
   elapsedMs: number;
   villainRange?: string;
+  engineMode?: "remote" | "local";
+  engineElapsedMs?: number;
+  threadsUsed?: number;
 }
 
 interface EquityError {
@@ -86,14 +89,13 @@ export interface EquityRequest {
   seed?: number;
 }
 
-const VILLAIN_PATTERN = /^(100%|top\s*\d+(\.\d+)?%)$/i;
-
 function parseVillainRange(v: string): { valid: boolean; pct: number; isRange: boolean } {
   const s = v.trim().toLowerCase();
   if (s === "100%") return { valid: true, pct: 100, isRange: false };
-  const m = s.match(/^top\s*(\d+(?:\.\d+)?)%$/);
+  const m = s.match(/^(?:top\s*)?(\d+(?:\.\d+)?)%$/);
   if (m) {
     const pct = parseFloat(m[1]);
+    if (pct === 100) return { valid: true, pct: 100, isRange: false };
     if (pct > 0 && pct <= 100) return { valid: true, pct, isRange: true };
   }
   return { valid: false, pct: 0, isRange: false };
@@ -120,7 +122,7 @@ function validateRequest(req: EquityRequest): string | null {
   }
   const vr = parseVillainRange(req.villain);
   if (!vr.valid) {
-    return `Invalid villain range: '${req.villain}'. Use '100%' or 'topN%' (e.g. 'top10%')`;
+    return `Invalid villain range: '${req.villain}'. Use '100%', 'topN%', or 'N%' (e.g. '10%' or 'top10%')`;
   }
   if (vr.isRange && !isRankFileAvailable()) {
     return "Rank index file not available. Range-based villain requires precomputed data.";
@@ -283,7 +285,10 @@ async function remoteEquity(
       signal: controller.signal,
     });
     clearTimeout(timer);
-    const data = await resp.json();
+    const data = await resp.json() as any;
+    if (data.ok) {
+      data.engineMode = "remote";
+    }
     return data as EquityResponse;
   } catch (err: any) {
     clearTimeout(timer);
@@ -306,12 +311,14 @@ function spawnEquity(
     const vr = parseVillainRange(villain);
     const villainRangeArg = vr.isRange ? `top${vr.pct}%` : "100%";
 
+    const threadsArg = process.env.EQUITY_THREADS ?? "auto";
     const args = [
       "equity",
       "--hand", hero,
       "--trials", String(trials),
       "--seed", String(seed),
       "--villain-range", villainRangeArg,
+      "--threads", threadsArg,
       "--json",
     ];
     if (vr.isRange) {
@@ -384,6 +391,9 @@ function spawnEquity(
 
       try {
         const parsed = JSON.parse(stdout.trim());
+        if (parsed.ok) {
+          parsed.engineMode = "local";
+        }
         resolve(parsed as EquityResponse);
       } catch {
         resolve({
@@ -539,6 +549,7 @@ function spawnBreakdown(req: BreakdownRequest): Promise<BreakdownResponse> {
     const vr = parseVillainRange(villainRange);
     const villainRangeArg = vr.isRange ? `top${vr.pct}%` : "100%";
 
+    const threadsArg = process.env.EQUITY_THREADS ?? "auto";
     const args = [
       "breakdown",
       "--hand", req.hero,
@@ -546,6 +557,7 @@ function spawnBreakdown(req: BreakdownRequest): Promise<BreakdownResponse> {
       "--trials-budget", String(trialsBudget),
       "--seed", String(seed),
       "--villain-range", villainRangeArg,
+      "--threads", threadsArg,
       "--json",
     ];
     if (vr.isRange) {
