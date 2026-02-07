@@ -39,6 +39,51 @@ export function cardsToConcat(cards: Card[]): string {
   return cards.map(c => `${c.rank}${c.suit}`).join('');
 }
 
+const VALID_RANKS_SET = new Set(RANKS as readonly string[]);
+const SUIT_ORDER: Suit[] = ['h', 'd', 'c', 's'];
+
+export function normalizeBoardShorthand(input: string, usedCards?: Set<string>): string | null {
+  const cleaned = input.trim().replace(/\s+/g, '');
+  if (cleaned.length === 0) return '';
+
+  const fullParse = parseCardsConcat(cleaned);
+  if (fullParse && fullParse.length > 0) return cleaned;
+
+  const ranks: string[] = [];
+  let i = 0;
+  while (i < cleaned.length) {
+    if (cleaned[i] === '1' && cleaned[i + 1] === '0') {
+      ranks.push('T');
+      i += 2;
+    } else {
+      const r = cleaned[i].toUpperCase();
+      if (!VALID_RANKS_SET.has(r)) return null;
+      ranks.push(r);
+      i += 1;
+    }
+  }
+
+  if (ranks.length < 3 || ranks.length > 5) return null;
+
+  const used = new Set<string>(usedCards || []);
+  const result: string[] = [];
+  for (const rank of ranks) {
+    let assigned = false;
+    for (const suit of SUIT_ORDER) {
+      const card = `${rank}${suit}`;
+      if (!used.has(card)) {
+        result.push(card);
+        used.add(card);
+        assigned = true;
+        break;
+      }
+    }
+    if (!assigned) return null;
+  }
+
+  return result.join('');
+}
+
 function combinations<T>(arr: T[], k: number): T[][] {
   if (k === 0) return [[]];
   if (arr.length < k) return [];
