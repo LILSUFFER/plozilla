@@ -15,9 +15,70 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { PlayingCard } from './PlayingCard';
 import { CardChips } from './CardChip';
-import { Play, Trash2, Plus, RotateCcw, Calculator, ClipboardPaste, FlaskConical, Server } from 'lucide-react';
+import { Play, Trash2, Plus, RotateCcw, Calculator, ClipboardPaste, FlaskConical, Server, ChevronDown, ChevronUp, BarChart3 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/lib/i18n';
+
+interface BreakdownItem {
+  card: string;
+  equity: number;
+  trials: number;
+}
+
+interface BreakdownResult {
+  ok: true;
+  street: string;
+  items: BreakdownItem[];
+  excluded: string[];
+  totalTrials: number;
+  trialsPerCard: number;
+  numCandidates: number;
+  seed: number;
+  elapsedMs: number;
+  villainRange: string;
+}
+
+async function callServerBreakdown(
+  hero: string,
+  board: string,
+  dead: string,
+  trialsBudget: number,
+  seed: number,
+  villainRange: string
+): Promise<BreakdownResult & { ok: boolean; error?: string }> {
+  const res = await fetch('/api/equity/breakdown', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      hero,
+      board,
+      dead: dead || undefined,
+      trialsBudget,
+      seed,
+      villainRange: villainRange || '100%',
+    }),
+  });
+  return res.json();
+}
+
+const SUIT_SYMBOLS: Record<string, string> = { s: '\u2660', h: '\u2665', d: '\u2666', c: '\u2663' };
+const SUIT_COLORS: Record<string, string> = {
+  s: 'text-foreground',
+  c: 'text-green-600 dark:text-green-400',
+  d: 'text-blue-500 dark:text-blue-400',
+  h: 'text-red-500 dark:text-red-400',
+};
+
+function CardLabel({ card }: { card: string }) {
+  if (card.length < 2) return <span>{card}</span>;
+  const rank = card.slice(0, card.length - 1);
+  const suit = card[card.length - 1];
+  return (
+    <span className="font-mono font-bold">
+      {rank}<span className={SUIT_COLORS[suit] || ''}>{SUIT_SYMBOLS[suit] || suit}</span>
+    </span>
+  );
+}
 
 async function callServerEquity(
   hero: string,
@@ -231,6 +292,11 @@ export function EquityCalculator() {
   const [serverError, setServerError] = useState<string | null>(null);
   const [usedServer, setUsedServer] = useState(false);
   const [villainRangeUsed, setVillainRangeUsed] = useState<string | null>(null);
+  const [breakdownEnabled, setBreakdownEnabled] = useState(false);
+  const [breakdownResult, setBreakdownResult] = useState<BreakdownResult | null>(null);
+  const [breakdownLoading, setBreakdownLoading] = useState(false);
+  const [breakdownError, setBreakdownError] = useState<string | null>(null);
+  const [breakdownShowAll, setBreakdownShowAll] = useState(false);
   
   const allUsedCards = new Set<string>();
   for (const card of board) {
@@ -316,7 +382,29 @@ export function EquityCalculator() {
     setServerError(null);
     setUsedServer(false);
     setVillainRangeUsed(null);
+    setBreakdownResult(null);
+    setBreakdownError(null);
+    setBreakdownShowAll(false);
   };
+
+  const runBreakdown = useCallback(async (heroStr: string, boardStr: string, villainStr: string, seedVal: number) => {
+    setBreakdownLoading(true);
+    setBreakdownError(null);
+    setBreakdownResult(null);
+    setBreakdownShowAll(false);
+    try {
+      const resp = await callServerBreakdown(heroStr, boardStr, '', selectedTrials, seedVal, villainStr);
+      if (resp.ok && resp.items) {
+        setBreakdownResult(resp as BreakdownResult);
+      } else {
+        setBreakdownError((resp as any).error || 'Unknown error');
+      }
+    } catch (err: any) {
+      setBreakdownError(err.message || 'Network error');
+    } finally {
+      setBreakdownLoading(false);
+    }
+  }, [selectedTrials]);
   
   const handlePasteHand = async () => {
     try {
@@ -471,6 +559,9 @@ export function EquityCalculator() {
               totalTrials: resp.trials || selectedTrials,
               isExhaustive: false,
             });
+            if (breakdownEnabled && (board.length === 3 || board.length === 4)) {
+              runBreakdown(heroStr, boardStr, villainStr, seedVal);
+            }
           } else {
             setServerError(resp.error || 'Unknown server error');
           }
@@ -825,6 +916,27 @@ export function EquityCalculator() {
           </div>
         )}
 
+        {players.length === 2 && players[0].cards.length === 5 && (board.length === 3 || board.length === 4) && (
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="breakdown-toggle"
+              checked={breakdownEnabled}
+              onChange={(e) => setBreakdownEnabled(e.target.checked)}
+              disabled={isCalculating}
+              className="h-4 w-4 rounded border-muted-foreground"
+              data-testid="checkbox-breakdown"
+            />
+            <Label htmlFor="breakdown-toggle" className="text-sm cursor-pointer flex items-center gap-1.5">
+              <BarChart3 className="w-4 h-4" />
+              {t('breakdownToggle')}
+              <span className="text-xs text-muted-foreground">
+                ({board.length === 3 ? t('breakdownFlopToTurn') : t('breakdownTurnToRiver')})
+              </span>
+            </Label>
+          </div>
+        )}
+
         {(hasRanges || players.some(p => isVillainRangePattern(p.input.trim()))) && (
           <div className="space-y-3">
             <div className="flex items-center gap-3 flex-wrap">
@@ -928,6 +1040,104 @@ export function EquityCalculator() {
           </div>
         )}
         
+        {(breakdownLoading || breakdownResult || breakdownError) && !isCalculating && (
+          <div className="space-y-3 pt-4 border-t" data-testid="section-breakdown">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <h3 className="font-semibold flex items-center gap-2">
+                <BarChart3 className="w-4 h-4" />
+                {t('breakdownTitle')}
+              </h3>
+              {breakdownResult && (
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary" data-testid="badge-breakdown-street">
+                    {breakdownResult.street === 'turn' ? t('breakdownFlopToTurn') : t('breakdownTurnToRiver')}
+                  </Badge>
+                  <Badge variant="outline" data-testid="badge-breakdown-time">
+                    {breakdownResult.elapsedMs < 1000 ? `${breakdownResult.elapsedMs}ms` : `${(breakdownResult.elapsedMs / 1000).toFixed(1)}s`}
+                  </Badge>
+                  <Badge variant="secondary" data-testid="badge-breakdown-trials">
+                    {breakdownResult.totalTrials.toLocaleString()} {t('trials')}
+                  </Badge>
+                </div>
+              )}
+            </div>
+
+            {breakdownLoading && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                <span>{t('breakdownRunning')}</span>
+              </div>
+            )}
+
+            {breakdownError && (
+              <div className="p-3 rounded-md border border-destructive bg-destructive/10 text-sm text-destructive" data-testid="text-breakdown-error">
+                {breakdownError}
+              </div>
+            )}
+
+            {breakdownResult && (
+              <div className="space-y-2">
+                <div className="rounded-md border overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/40">
+                        <th className="text-left px-3 py-2 w-10">#</th>
+                        <th className="text-left px-3 py-2">{t('breakdownCard')}</th>
+                        <th className="text-right px-3 py-2">{t('breakdownEquity')}</th>
+                        <th className="text-right px-3 py-2 hidden sm:table-cell">{t('breakdownTrials')}</th>
+                        <th className="px-3 py-2 w-[40%]"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(breakdownShowAll ? breakdownResult.items : breakdownResult.items.slice(0, 20)).map((item, idx) => {
+                        const maxEq = breakdownResult.items[0]?.equity || 0;
+                        const barWidth = maxEq > 0 ? (item.equity / maxEq) * 100 : 0;
+                        const isGood = item.equity >= 0.5;
+                        return (
+                          <tr key={item.card} className="border-b last:border-b-0" data-testid={`row-breakdown-${item.card}`}>
+                            <td className="px-3 py-1.5 text-muted-foreground tabular-nums">{idx + 1}</td>
+                            <td className="px-3 py-1.5"><CardLabel card={item.card} /></td>
+                            <td className={cn('px-3 py-1.5 text-right font-mono tabular-nums', isGood ? 'text-green-600 dark:text-green-400 font-bold' : '')}>
+                              {(item.equity * 100).toFixed(2)}%
+                            </td>
+                            <td className="px-3 py-1.5 text-right text-muted-foreground tabular-nums hidden sm:table-cell">
+                              {item.trials.toLocaleString()}
+                            </td>
+                            <td className="px-3 py-1.5">
+                              <div className="relative h-4 bg-muted/30 rounded overflow-hidden">
+                                <div
+                                  className={cn('h-full rounded transition-all', isGood ? 'bg-green-500/70' : 'bg-primary/40')}
+                                  style={{ width: `${barWidth}%` }}
+                                />
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {breakdownResult.items.length > 20 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setBreakdownShowAll(!breakdownShowAll)}
+                    className="w-full"
+                    data-testid="button-breakdown-show-toggle"
+                  >
+                    {breakdownShowAll ? (
+                      <><ChevronUp className="w-4 h-4 mr-1" />{t('breakdownShowTop')}</>
+                    ) : (
+                      <><ChevronDown className="w-4 h-4 mr-1" />{t('breakdownShowAll').replace('{n}', String(breakdownResult.items.length))}</>
+                    )}
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {result && !isCalculating && (
           <div className="space-y-4 pt-4 border-t">
             <div className="flex items-center justify-between gap-2 flex-wrap">
