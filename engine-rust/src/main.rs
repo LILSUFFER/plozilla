@@ -1160,6 +1160,50 @@ fn load_rank_index(path: &str) -> Vec<u32> {
     indices
 }
 
+fn validate_rank_index(rank_index: &[u32], bin_path: &str) -> bool {
+    let bin_data = match fs::read(bin_path) {
+        Ok(d) => d,
+        Err(_) => {
+            eprintln!("  WARN: Cannot read prod binary for rank validation: {}", bin_path);
+            return true;
+        }
+    };
+    if bin_data.len() < 68 || &bin_data[0..4] != b"PLO5" {
+        eprintln!("  WARN: Invalid prod binary format for validation");
+        return true;
+    }
+    let num_hands = u32::from_le_bytes(bin_data[8..12].try_into().unwrap()) as usize;
+    let mut canonical_equity: HashMap<[u8; 5], f32> = HashMap::with_capacity(num_hands);
+    for i in 0..num_hands {
+        let off = 64 + i * 20;
+        if off + 10 > bin_data.len() { break; }
+        let cards: [u8; 5] = [bin_data[off], bin_data[off+1], bin_data[off+2], bin_data[off+3], bin_data[off+4]];
+        let equity = f32::from_le_bytes(bin_data[off+6..off+10].try_into().unwrap());
+        canonical_equity.insert(cards, equity);
+    }
+
+    let top_hand = index_to_hand(rank_index[0]);
+    let top_can = canonicalize(&top_hand);
+    let top_eq = canonical_equity.get(&top_can).copied().unwrap_or(0.0);
+
+    let bot_idx = rank_index.len() - 1;
+    let bot_hand = index_to_hand(rank_index[bot_idx]);
+    let bot_can = canonicalize(&bot_hand);
+    let bot_eq = canonical_equity.get(&bot_can).copied().unwrap_or(1.0);
+
+    let valid = top_eq > 0.60 && bot_eq < 0.20;
+    if !valid {
+        eprintln!("  FATAL: Rank index sanity check FAILED!");
+        eprintln!("    Top hand: {} eq={:.3}% (expected >60%)",
+            top_hand.iter().map(|&c| card_name(c)).collect::<Vec<_>>().join(""), top_eq * 100.0);
+        eprintln!("    Bottom hand: {} eq={:.3}% (expected <20%)",
+            bot_hand.iter().map(|&c| card_name(c)).collect::<Vec<_>>().join(""), bot_eq * 100.0);
+        eprintln!("  Rank index file appears to have garbage rankings. Regenerate with:");
+        eprintln!("    plo5_ranker build_rank_index --bin <prod.bin> --out <rank_index.u32>");
+    }
+    valid
+}
+
 fn parse_villain_range(s: &str) -> Option<f64> {
     let s = s.trim().to_lowercase();
     if s == "100%" { return Some(100.0); }
@@ -1236,10 +1280,19 @@ fn run_equity(args: &[String]) {
     let card_names: Vec<String> = canonical.iter().map(|&c| card_name(c)).collect();
     let board_to_fill = 5 - board_cards.len();
 
+    let bin_path_for_validation = parse_flag(&args, "--bin")
+        .unwrap_or_else(|| "public/plo5_rankings_prod.bin".into());
     let rank_pool: Vec<[u8; 5]> = if is_range_restricted {
         let rank_index = load_rank_index(&rank_file);
-        let top_count = ((villain_pct / 100.0) * 2598960.0).ceil() as usize;
-        let top_count = top_count.min(2598960);
+        if !validate_rank_index(&rank_index, &bin_path_for_validation) {
+            if json_output {
+                println!("{{\"ok\":false,\"error\":\"Rank index sanity check failed. Top equity must be >60%, bottom <20%. Regenerate with build_rank_index.\"}}");
+                std::process::exit(0);
+            }
+            std::process::exit(1);
+        }
+        let top_count = ((villain_pct / 100.0) * 2598960.0).floor() as usize;
+        let top_count = top_count.max(1).min(2598960);
         if !json_output {
             eprintln!("  Villain range: top {:.1}% ({} of 2,598,960 hands)", villain_pct, top_count);
         }
@@ -1276,6 +1329,9 @@ fn run_equity(args: &[String]) {
     let hero_2s = two_card_subsets(&hand);
     let hero_bm = card_bitmap(&hand);
     let remaining: Vec<u8> = (0..52u8).filter(|c| !excluded.contains(c)).collect();
+    let mut excluded_bm: u64 = hero_bm;
+    for &c in &board_cards { excluded_bm |= 1u64 << (c as u64); }
+    for &c in &dead_cards { excluded_bm |= 1u64 << (c as u64); }
 
     let num_threads = num_cpus();
     let chunk = (trials as usize + num_threads - 1) / num_threads;
@@ -1289,6 +1345,7 @@ fn run_equity(args: &[String]) {
             let board_fill_n = board_to_fill;
             let rank_pool_ref = &rank_pool;
             let use_range = is_range_restricted;
+            let excl_bm = excluded_bm;
             s.spawn(move || {
                 let start = t * chunk;
                 let end = ((t + 1) * chunk).min(trials as usize);
@@ -1298,45 +1355,57 @@ fn run_equity(args: &[String]) {
                 let mut wins = 0.0f64;
                 let mut total = 0u64;
                 for _ in start..end {
-                    let board_sample = sample_n(remaining_ref, board_fill_n, &mut rng);
-                    let mut full_board = Vec::with_capacity(5);
-                    for &c in board_cards_ref { full_board.push(c); }
-                    for i in 0..board_fill_n { full_board.push(board_sample[i]); }
-                    full_board.sort();
-                    let board_bm = card_bitmap(&full_board);
-                    let board_3s = three_card_subsets_from_slice(&full_board);
-                    let hero_rank = eval_best(hero_2s_ref, &board_3s, table_ref);
-
-                    let villain_arr: [u8; 5];
                     if use_range {
                         let pool_len = rank_pool_ref.len();
                         let mut found = false;
-                        let mut attempt_villain = [0u8; 5];
+                        let mut villain_arr = [0u8; 5];
                         for _ in 0..200 {
                             let vi = rng.gen_range(pool_len);
                             let cand = rank_pool_ref[vi];
                             let cand_bm = card_bitmap(&cand);
-                            if cand_bm & hero_bm != 0 { continue; }
-                            if cand_bm & board_bm != 0 { continue; }
-                            attempt_villain = cand;
+                            if cand_bm & excl_bm != 0 { continue; }
+                            villain_arr = cand;
                             found = true;
                             break;
                         }
                         if !found { continue; }
-                        villain_arr = attempt_villain;
+                        let villain_bm = card_bitmap(&villain_arr);
+                        let all_used_bm = excl_bm | villain_bm;
+                        let fill_pool: Vec<u8> = (0..52u8)
+                            .filter(|&c| all_used_bm & (1u64 << (c as u64)) == 0)
+                            .collect();
+                        if fill_pool.len() < board_fill_n { continue; }
+                        let board_sample = sample_n(&fill_pool, board_fill_n, &mut rng);
+                        let mut full_board = Vec::with_capacity(5);
+                        for &c in board_cards_ref { full_board.push(c); }
+                        for i in 0..board_fill_n { full_board.push(board_sample[i]); }
+                        full_board.sort();
+                        let board_3s = three_card_subsets_from_slice(&full_board);
+                        let hero_rank = eval_best(hero_2s_ref, &board_3s, table_ref);
+                        let villain_2s = two_card_subsets(&villain_arr);
+                        let villain_rank = eval_best(&villain_2s, &board_3s, table_ref);
+                        if hero_rank < villain_rank { wins += 1.0; }
+                        else if hero_rank == villain_rank { wins += 0.5; }
+                        total += 1;
                     } else {
+                        let board_sample = sample_n(remaining_ref, board_fill_n, &mut rng);
+                        let mut full_board = Vec::with_capacity(5);
+                        for &c in board_cards_ref { full_board.push(c); }
+                        for i in 0..board_fill_n { full_board.push(board_sample[i]); }
+                        full_board.sort();
+                        let board_bm = card_bitmap(&full_board);
+                        let board_3s = three_card_subsets_from_slice(&full_board);
+                        let hero_rank = eval_best(hero_2s_ref, &board_3s, table_ref);
                         let pool: Vec<u8> = remaining_ref.iter()
                             .filter(|&&c| board_bm & (1u64 << (c as u64)) == 0)
                             .copied().collect();
-                        villain_arr = sample_villain(&pool, &mut rng);
+                        let villain_arr = sample_villain(&pool, &mut rng);
+                        let villain_2s = two_card_subsets(&villain_arr);
+                        let villain_rank = eval_best(&villain_2s, &board_3s, table_ref);
+                        if hero_rank < villain_rank { wins += 1.0; }
+                        else if hero_rank == villain_rank { wins += 0.5; }
+                        total += 1;
                     }
-
-                    let villain_2s = two_card_subsets(&villain_arr);
-                    let villain_rank = eval_best(&villain_2s, &board_3s, table_ref);
-
-                    if hero_rank < villain_rank { wins += 1.0; }
-                    else if hero_rank == villain_rank { wins += 0.5; }
-                    total += 1;
                 }
                 (wins, total)
             })
@@ -1703,8 +1772,8 @@ fn run_breakdown(args: &[String]) {
 
     let rank_pool: Vec<[u8; 5]> = if is_range_restricted {
         let rank_index = load_rank_index(&rank_file);
-        let top_count = ((villain_pct / 100.0) * 2598960.0).ceil() as usize;
-        let top_count = top_count.min(2598960);
+        let top_count = ((villain_pct / 100.0) * 2598960.0).floor() as usize;
+        let top_count = top_count.max(1).min(2598960);
         rank_index[..top_count].iter().map(|&idx| index_to_hand(idx)).collect()
     } else {
         Vec::new()

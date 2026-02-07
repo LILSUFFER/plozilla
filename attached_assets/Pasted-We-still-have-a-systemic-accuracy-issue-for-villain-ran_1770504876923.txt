@@ -1,0 +1,55 @@
+We still have a systemic accuracy issue for villain ranges like "10%".
+Example (preflop, 600k trials, seed=12345):
+Hero: Jh9h8h7h5s vs 10%
+Our result: ~44.26%
+ProPokerTools: ~40.77%
+This is far beyond Monte Carlo noise, so the villain range sampling is not equivalent to PPT.
+
+TASK: Make villain range sampling EXACTLY uniform over the top N% of ALL 2,598,960 concrete 5-card combos.
+
+Most likely root cause:
+We are sampling “top N%” over canonical classes (134,459) or in a way that gives equal probability per canonical hand.
+That is wrong. PPT’s “10% = 259,896 hands” means 10% of the 2,598,960 concrete combos, sampled uniformly by combo count.
+
+Required fix:
+1) Define “N% range” as: topK = floor(2,598,960 * N / 100) concrete hands in the global sorted list.
+2) Sampling villain must be uniform over [0..topK-1] indices in that concrete list.
+3) Blockers must still be applied (exclude overlap with hero/board/dead). After blockers, renormalize (rejection sampling is OK, but keep it unbiased).
+
+Implementation guidance:
+A) Build a proper global rank list of 2,598,960 concrete hands:
+   - Use production canonical equities file (plo5_rankings_prod.bin) as the source of equity values.
+   - Map each concrete 5-card combo -> canonical key -> equity lookup (no MC).
+   - Sort all 2,598,960 concrete combos by equity descending (stable).
+   - Store only what you need for fast sampling:
+     Option 1: store a u32-packed hand encoding array of length 2,598,960 in sorted order (ranked_hands_all.u32 or similar).
+     Option 2: store rank_index_all_2598960.u32 where index = rank position and value = packed-hand-id.
+   - IMPORTANT: this file must be generated from prod canonical equities ONLY (no MC), otherwise it’s garbage.
+
+B) Equity vs N%:
+   - Choose random index r in [0..topK-1]
+   - Decode concrete villain hand from ranked array
+   - If overlaps hero/board -> reject and resample (rejection sampling).
+   - This ensures the villain is sampled uniformly over the chosen topK combos (conditional on blockers).
+
+C) Add strong invariants / sanity checks at startup:
+   - Print top-5 and bottom-5 equities from the global concrete list.
+   - Assert top1 equity > 0.60 and bottom1 equity < 0.20, else refuse to serve ranges.
+   - Expose in /api/equity/status:
+     rankFilePath, rankFileSize, rankFileGeneratedAt, rankFileSourceHash (hash of plo5_rankings_prod.bin)
+
+D) Add regression tests (fixed seed):
+   - AhAdThTd9s vs 10%, 600k trials: should be ~64.30% (±0.25% allowed)
+   - Jh9h8h7h5s vs 10%, 600k trials: should be ~40.77% (±0.30% allowed)
+   - Keep JsTh5dTc4c vs 100% benchmark as well.
+
+E) UI/labels:
+   - Keep inputs as “10%” etc (no “top10%”).
+   - For N% display: show exact combo count (e.g., 259,896 combos) derived from 2,598,960.
+   - Ensure 10% and any preset use the SAME code path (no separate “Top 10%” logic).
+
+Deliverables:
+- A new global ranked concrete hands file generated from prod canonical equities
+- Updated villain sampling to be combo-uniform over topK
+- Added sanity checks + status metadata
+- Regression tests passing for the two benchmark hands above

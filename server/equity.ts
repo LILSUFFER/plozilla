@@ -4,6 +4,7 @@ import fs from "fs";
 
 const BINARY_PATH = path.resolve("engine-rust/target/release/plo5_ranker");
 const RANK_FILE = path.resolve(process.env.RANK_FILE_PATH || "public/rank_index_all_2598960.u32");
+const PROD_BIN = path.resolve(process.env.PROD_BIN_PATH || "public/plo5_rankings_prod.bin");
 const MAX_CONCURRENT = 2;
 const TIMEOUT_MS = 120_000;
 const CACHE_TTL_MS = 60 * 60 * 1000;
@@ -337,6 +338,7 @@ function spawnEquity(
     ];
     if (vr.isRange) {
       args.push("--rank-file", RANK_FILE);
+      args.push("--bin", PROD_BIN);
     }
     if (board) {
       args.push("--board", board);
@@ -588,6 +590,7 @@ function spawnBreakdown(req: BreakdownRequest): Promise<BreakdownResponse> {
     ];
     if (vr.isRange) {
       args.push("--rank-file", RANK_FILE);
+      args.push("--bin", PROD_BIN);
     }
     if (dead) {
       args.push("--dead", dead);

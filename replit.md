@@ -20,8 +20,12 @@ A browser-based 5-Card Omaha equity calculator similar to ProPokerTools Oracle. 
     - `--seed <u64>` (default 12345), `--crn on|off` (default on)
     - Acceptance rate: ~59% of boards valid per hero (C(47,5)/C(52,5))
     - Bitmap-based O(1) overlap checking for performance
-  - **Equity command**: `plo5_ranker equity --hand AcAdKhQh5s --trials 600000 --seed 12345 [--villain-range 100%|topN%] [--rank-file path]`
+  - **Equity command**: `plo5_ranker equity --hand AcAdKhQh5s --trials 600000 --seed 12345 [--villain-range 100%|topN%] [--rank-file path] [--bin prod.bin]`
   - **Villain range support**: `--villain-range 10%` restricts villain sampling to top N% of precomputed hand rankings
+  - **Sanity checks**: `validate_rank_index()` verifies top hand >60% equity, bottom <20% using prod binary; aborts with actionable error if corrupted
+  - **Dead card exclusion**: Range-restricted path uses `excluded_bm` bitmap (hero + board + dead) for proper villain rejection
+  - **Villain-first sampling**: Range mode samples villain FIRST (uniform from rank pool), then board from remaining cards
+  - **Top-K calculation**: Uses `floor()` with `max(1)` for consistent boundary behavior
   - **build_rank_index**: Generates `rank_index_all_2598960.u32` from production binary (`plo5_rankings_prod.bin`)
     - Maps all 2,598,960 combos through canonicalization to look up high-quality canonical equity
     - Much more accurate than precompute_all (which used noisy MC estimates per combo)
