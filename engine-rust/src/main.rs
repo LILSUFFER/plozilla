@@ -1423,9 +1423,16 @@ fn run_equity(args: &[String]) {
     let losses = total_count_u - wins_int - ties_approx;
 
     if json_output {
+        let rank_info = if is_range_restricted {
+            let top_count = ((villain_pct / 100.0) * 2598960.0).floor() as usize;
+            let top_count = top_count.max(1).min(2598960);
+            format!(",\"rankIndexMode\":\"concrete_combo_uniform\",\"totalConcrete\":2598960,\"topK\":{}", top_count)
+        } else {
+            String::new()
+        };
         println!(
-            "{{\"ok\":true,\"equity\":{:.6},\"equityPct\":{:.4},\"wins\":{},\"ties\":{},\"losses\":{},\"trials\":{},\"seed\":{},\"elapsedMs\":{},\"villainRange\":\"{}\"}}",
-            mc_equity, mc_equity * 100.0, wins_int, ties_approx, losses, total_count_u, seed, elapsed_ms, villain_range_str
+            "{{\"ok\":true,\"equity\":{:.6},\"equityPct\":{:.4},\"wins\":{},\"ties\":{},\"losses\":{},\"trials\":{},\"seed\":{},\"elapsedMs\":{},\"villainRange\":\"{}\"{}}}",
+            mc_equity, mc_equity * 100.0, wins_int, ties_approx, losses, total_count_u, seed, elapsed_ms, villain_range_str, rank_info
         );
     } else {
         eprintln!();
@@ -1976,6 +1983,169 @@ fn run_breakdown(args: &[String]) {
     }
 }
 
+fn run_debug_range(args: &[String]) {
+    let range_str = parse_flag(args, "--range")
+        .unwrap_or_else(|| "10%".into());
+    let rank_file = parse_flag(args, "--rank-file")
+        .unwrap_or_else(|| "public/rank_index_all_2598960.u32".into());
+    let samples: usize = parse_flag(args, "--samples")
+        .and_then(|s| s.parse().ok()).unwrap_or(1_000_000);
+    let seed: u64 = parse_flag(args, "--seed")
+        .and_then(|s| s.parse().ok()).unwrap_or(12345);
+    let json_output = args.iter().any(|a| a == "--json");
+    let num_buckets: usize = 100;
+
+    let villain_pct = match parse_villain_range(&range_str) {
+        Some(p) if p < 100.0 => p,
+        _ => { eprintln!("Invalid range: {}", range_str); std::process::exit(1); }
+    };
+
+    let rank_index = load_rank_index(&rank_file);
+    let top_k = ((villain_pct / 100.0) * 2598960.0).floor() as usize;
+    let top_k = top_k.max(1).min(2598960);
+
+    eprintln!("╔══════════════════════════════════════════════╗");
+    eprintln!("║  Debug Range Sampling Diagnostics            ║");
+    eprintln!("╚══════════════════════════════════════════════╝");
+    eprintln!();
+    eprintln!("  Range:           {}%", villain_pct);
+    eprintln!("  topK:            {} (of 2,598,960)", top_k);
+    eprintln!("  Samples:         {}", samples);
+    eprintln!("  Seed:            {}", seed);
+    eprintln!("  Rank file:       {}", rank_file);
+    eprintln!("  rankIndexMode:   concrete_combo_uniform");
+    eprintln!("  totalConcrete:   2,598,960");
+    eprintln!();
+
+    let rank_pool: Vec<[u8; 5]> = rank_index[..top_k].iter()
+        .map(|&idx| index_to_hand(idx))
+        .collect();
+
+    assert_eq!(rank_pool.len(), top_k, "rank_pool.len() must equal topK");
+    eprintln!("  rank_pool.len() = {} ✓", rank_pool.len());
+
+    let mut bucket_counts = vec![0u64; num_buckets];
+    let mut canonical_counts: HashMap<[u8; 5], u64> = HashMap::new();
+    let mut rng = Xorshift64::new(mix_seed(seed));
+
+    eprintln!("  Drawing {} samples (no blocker rejection)...", samples);
+    for _ in 0..samples {
+        let vi = rng.gen_range(top_k);
+        let hand = rank_pool[vi];
+
+        let bucket = vi * num_buckets / top_k;
+        bucket_counts[bucket] += 1;
+
+        let can = canonicalize(&hand);
+        *canonical_counts.entry(can).or_insert(0) += 1;
+    }
+
+    let expected_per_bucket = samples as f64 / num_buckets as f64;
+    let mut max_dev = 0.0f64;
+    let mut min_dev = 0.0f64;
+    let mut max_dev_bucket = 0usize;
+    let mut min_dev_bucket = 0usize;
+    for (i, &count) in bucket_counts.iter().enumerate() {
+        let dev = (count as f64 - expected_per_bucket) / expected_per_bucket * 100.0;
+        if dev > max_dev { max_dev = dev; max_dev_bucket = i; }
+        if dev < min_dev { min_dev = dev; min_dev_bucket = i; }
+    }
+
+    eprintln!();
+    eprintln!("  === BUCKET HISTOGRAM ({} buckets across [0..{})) ===", num_buckets, top_k);
+    eprintln!("  Expected per bucket: {:.1}", expected_per_bucket);
+    eprintln!("  Max deviation: +{:.3}% (bucket {})", max_dev, max_dev_bucket);
+    eprintln!("  Min deviation: {:.3}% (bucket {})", min_dev, min_dev_bucket);
+
+    let bucket_uniform = max_dev.abs() < 1.0 && min_dev.abs() < 1.0;
+    if bucket_uniform {
+        eprintln!("  PASS: Bucket histogram is uniform (max |dev| < 1.0%)");
+    } else {
+        eprintln!("  WARN: Bucket histogram deviation exceeds 1.0%");
+    }
+
+    let mut canonical_in_topk: HashMap<[u8; 5], u32> = HashMap::new();
+    for i in 0..top_k {
+        let can = canonicalize(&rank_pool[i]);
+        *canonical_in_topk.entry(can).or_insert(0) += 1;
+    }
+
+    let total_canonical = canonical_counts.len();
+    let total_canonical_in_topk = canonical_in_topk.len();
+    eprintln!();
+    eprintln!("  === CANONICAL CLASS DISTRIBUTION ===");
+    eprintln!("  Unique canonical classes sampled:  {}", total_canonical);
+    eprintln!("  Unique canonical classes in topK:  {}", total_canonical_in_topk);
+
+    let mut max_ratio_dev = 0.0f64;
+    let mut chi2 = 0.0f64;
+    let mut num_checked = 0u64;
+    for (can, &expected_combos) in &canonical_in_topk {
+        let observed = *canonical_counts.get(can).unwrap_or(&0) as f64;
+        let expected = expected_combos as f64 / top_k as f64 * samples as f64;
+        if expected < 1.0 { continue; }
+        let ratio_dev = ((observed - expected) / expected).abs();
+        if ratio_dev > max_ratio_dev { max_ratio_dev = ratio_dev; }
+        chi2 += (observed - expected) * (observed - expected) / expected;
+        num_checked += 1;
+    }
+
+    eprintln!("  Max canonical freq deviation from expected: {:.3}%", max_ratio_dev * 100.0);
+    eprintln!("  Chi-squared ({} classes): {:.1}", num_checked, chi2);
+    let canonical_proportional = max_ratio_dev < 0.10;
+    if canonical_proportional {
+        eprintln!("  PASS: Canonical freq proportional to combo count in topK");
+    } else {
+        eprintln!("  WARN: Canonical freq not proportional (max dev > 10%)");
+    }
+
+    let top3: Vec<_> = {
+        let mut v: Vec<_> = canonical_in_topk.iter().collect();
+        v.sort_by(|a, b| b.1.cmp(a.1));
+        v.into_iter().take(3).map(|(can, combos)| {
+            let sampled = *canonical_counts.get(can).unwrap_or(&0);
+            let names: Vec<String> = can.iter().map(|&c| card_name(c)).collect();
+            format!("{} combos={} sampled={} expected={:.0}",
+                names.join(""), combos, sampled,
+                *combos as f64 / top_k as f64 * samples as f64)
+        }).collect()
+    };
+    let bot3: Vec<_> = {
+        let mut v: Vec<_> = canonical_in_topk.iter()
+            .filter(|(_, &c)| c >= 4)
+            .collect();
+        v.sort_by(|a, b| a.1.cmp(b.1));
+        v.into_iter().take(3).map(|(can, combos)| {
+            let sampled = *canonical_counts.get(can).unwrap_or(&0);
+            let names: Vec<String> = can.iter().map(|&c| card_name(c)).collect();
+            format!("{} combos={} sampled={} expected={:.0}",
+                names.join(""), combos, sampled,
+                *combos as f64 / top_k as f64 * samples as f64)
+        }).collect()
+    };
+
+    eprintln!();
+    eprintln!("  Top canonical classes by combo count:");
+    for s in &top3 { eprintln!("    {}", s); }
+    eprintln!("  Bottom canonical classes (≥4 combos):");
+    for s in &bot3 { eprintln!("    {}", s); }
+
+    eprintln!();
+    let overall = bucket_uniform && canonical_proportional;
+    if overall {
+        eprintln!("  ✓ OVERALL: Sampling is COMBO-UNIFORM over topK concrete hands");
+    } else {
+        eprintln!("  ✗ OVERALL: Sampling has BIAS — needs investigation");
+    }
+
+    if json_output {
+        println!("{{\"ok\":true,\"mode\":\"concrete_combo_uniform\",\"totalConcrete\":2598960,\"topK\":{},\"rangePct\":{},\"samples\":{},\"buckets\":{},\"maxBucketDevPct\":{:.4},\"minBucketDevPct\":{:.4},\"bucketUniform\":{},\"canonicalClasses\":{},\"canonicalMaxDevPct\":{:.4},\"canonicalProportional\":{},\"overallPass\":{}}}",
+            top_k, villain_pct, samples, num_buckets,
+            max_dev, min_dev, bucket_uniform,
+            total_canonical, max_ratio_dev * 100.0, canonical_proportional, overall);
+    }
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
@@ -2024,9 +2194,10 @@ fn main() {
         "accuracy" => run_accuracy(&args[2..]),
         "baseline" => run_baseline(&args[2..]),
         "validate" => run_validate(&args[2..]),
+        "debug_range" | "debug-range" => run_debug_range(&args[2..]),
         "info" => run_info(),
         other => {
-            eprintln!("Unknown command: {}. Use precompute, precompute_all, build_rank_index, equity, breakdown, accuracy, baseline, validate, or info.", other);
+            eprintln!("Unknown command: {}. Use precompute, precompute_all, build_rank_index, equity, breakdown, accuracy, baseline, validate, debug_range, or info.", other);
             std::process::exit(1);
         }
     }

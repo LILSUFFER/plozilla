@@ -1,0 +1,55 @@
+We improved, but the “10%” villain range is still not correct enough.
+Current deltas:
+
+AhAdThTd9s vs 10%: 64.74% (PPT ~64.30)  Δ≈ +0.44
+Jh9h8h7h5s vs 10%: 40.13% (PPT ~40.77)  Δ≈ -0.64
+
+This is still too large for 600k trials unless the villain range definition/sampling differs from PPT.
+
+IMPORTANT: The recent fixes (dead cards, ceil->floor, sanity check) are good, but they do NOT prove that “N%” is sampled uniformly over the topK of ALL 2,598,960 concrete combos.
+
+TASK: Prove and enforce that villain sampling for “N%” is combo-uniform over the topK list.
+
+1) Verify sampling basis (must be combos, not canonical classes):
+   - Add a diagnostic mode: --debug-range N%
+   - In this mode, run 1,000,000 villain draws (no hand eval needed), only sampling from the N% pool with blockers disabled.
+   - Count occurrences by:
+     a) concrete-hand index position bucket (e.g., 100 buckets across [0..topK-1])
+     b) canonical-class id (suit-isomorphic key)
+   - Expected:
+     - bucket histogram should be ~uniform (±0.5% per bucket for 1e6 samples)
+     - canonical-class frequencies should be proportional to their combo multiplicity inside topK, NOT uniform per class
+
+2) If sampling is not combo-uniform, fix it:
+   - The only correct approach is:
+     - pick random integer r in [0..topK-1]
+     - decode concrete villain hand from ranked_concrete[r]
+     - reject if overlaps excluded_bm (hero+board+dead)
+     - repeat
+   - Ensure ranked_concrete is a length 2,598,960 array of concrete hands sorted by equity derived from the production canonical binary (no MC).
+
+3) Remove any remaining “canonical-weighted” shortcuts:
+   - Do NOT sample canonical hands and then expand to suits.
+   - Do NOT sample canonical keys uniformly.
+   - Do NOT sample from “top canonical hands”.
+   All of these are biased vs PPT’s “10% = 259,896 hands”.
+
+4) Increase correctness checks:
+   - Add a startup print (or /api/equity/status field) that confirms:
+     - rank_index mode = "concrete_combo_uniform"
+     - totalConcrete = 2,598,960
+     - topK for 10% = 259,896 exactly
+   - Add an assertion: when N%=10, the displayed “combos” must equal 259,896 always.
+
+5) Regression tests:
+   - Run 2,000,000 trials (MC) with seed=12345 for:
+     - AhAdThTd9s vs 10%
+     - Jh9h8h7h5s vs 10%
+   - Target: |delta| <= 0.25% vs PPT reference (or vs a high-trial internal baseline).
+   If still larger, the range sampling is still wrong.
+
+Deliverables:
+- debug-range diagnostic output (histograms)
+- sampling implementation confirmed combo-uniform
+- updated /api/equity/status with rank index mode + topK info
+- updated regression tests passing
