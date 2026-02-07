@@ -271,6 +271,13 @@ export async function runEquity(req: EquityRequest): Promise<EquityResponse> {
   }
 }
 
+function toRemoteVillainFormat(villain: string): string {
+  const vr = parseVillainRange(villain);
+  if (!vr.valid) return villain;
+  if (!vr.isRange) return "100%";
+  return `top${vr.pct}%`;
+}
+
 async function remoteEquity(
   hero: string,
   villain: string,
@@ -282,17 +289,19 @@ async function remoteEquity(
   const url = REMOTE_URL.replace(/\/$/, "") + "/api/equity";
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const remoteVillain = toRemoteVillainFormat(villain);
   try {
     const resp = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ hero, villain, board: board || undefined, dead: dead || undefined, trials, seed }),
+      body: JSON.stringify({ hero, villain: remoteVillain, board: board || undefined, dead: dead || undefined, trials, seed }),
       signal: controller.signal,
     });
     clearTimeout(timer);
     const data = await resp.json() as any;
     if (data.ok) {
       data.engineMode = "remote";
+      data.villainRange = villain;
     }
     return data as EquityResponse;
   } catch (err: any) {
@@ -531,14 +540,22 @@ async function remoteBreakdown(req: BreakdownRequest): Promise<BreakdownResponse
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
+    const remoteReq = { ...req };
+    if (remoteReq.villainRange) {
+      remoteReq.villainRange = toRemoteVillainFormat(remoteReq.villainRange);
+    }
     const resp = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(req),
+      body: JSON.stringify(remoteReq),
       signal: controller.signal,
     });
     clearTimeout(timer);
-    return await resp.json() as BreakdownResponse;
+    const data = await resp.json() as BreakdownResponse;
+    if (data.ok && req.villainRange) {
+      data.villainRange = req.villainRange;
+    }
+    return data;
   } catch (err: any) {
     clearTimeout(timer);
     if (err.name === "AbortError") {
