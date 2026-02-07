@@ -21,6 +21,7 @@ import { useTranslation } from '@/lib/i18n';
 
 async function callServerEquity(
   hero: string,
+  villain: string,
   board: string,
   dead: string,
   trials: number,
@@ -35,6 +36,7 @@ async function callServerEquity(
   trials?: number;
   seed?: number;
   elapsedMs?: number;
+  villainRange?: string;
   error?: string;
 }> {
   const res = await fetch('/api/equity', {
@@ -42,7 +44,7 @@ async function callServerEquity(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       hero,
-      villain: '100%',
+      villain,
       board: board || undefined,
       dead: dead || undefined,
       trials,
@@ -50,6 +52,20 @@ async function callServerEquity(
     }),
   });
   return res.json();
+}
+
+const VILLAIN_RANGE_PRESETS = [
+  { label: '100%', value: '100%' },
+  { label: 'Top 1%', value: 'top1%' },
+  { label: 'Top 3%', value: 'top3%' },
+  { label: 'Top 5%', value: 'top5%' },
+  { label: 'Top 10%', value: 'top10%' },
+  { label: 'Top 20%', value: 'top20%' },
+] as const;
+
+function isVillainRangePattern(s: string): boolean {
+  const t = s.trim().toLowerCase();
+  return t === '100%' || /^top\s*\d+(\.\d+)?%$/.test(t);
 }
 
 const ALL_RANKS = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'];
@@ -214,6 +230,7 @@ export function EquityCalculator() {
   const [isBenchmarking, setIsBenchmarking] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const [usedServer, setUsedServer] = useState(false);
+  const [villainRangeUsed, setVillainRangeUsed] = useState<string | null>(null);
   
   const allUsedCards = new Set<string>();
   for (const card of board) {
@@ -298,6 +315,7 @@ export function EquityCalculator() {
     setBenchmarkResult(null);
     setServerError(null);
     setUsedServer(false);
+    setVillainRangeUsed(null);
   };
   
   const handlePasteHand = async () => {
@@ -388,9 +406,14 @@ export function EquityCalculator() {
     if (hero.cards.length !== 5) return false;
     if (villain.isRange) {
       const pattern = villain.rangePattern?.trim() || villain.input.trim();
-      return pattern === '100%';
+      return isVillainRangePattern(pattern);
     }
     return false;
+  };
+
+  const getVillainRangeForServer = (villain: PlayerInput): string => {
+    const pattern = villain.rangePattern?.trim() || villain.input.trim();
+    return pattern;
   };
 
   const calculate = () => {
@@ -406,6 +429,7 @@ export function EquityCalculator() {
     setIsCalculating(true);
     setServerError(null);
     setUsedServer(false);
+    setVillainRangeUsed(null);
     
     const start = performance.now();
     const isPreflop = board.length === 0;
@@ -413,17 +437,19 @@ export function EquityCalculator() {
 
     if (canUseServer(validPlayers)) {
       const heroStr = cardsToString(validPlayers[0].cards);
+      const villainStr = getVillainRangeForServer(validPlayers[1]);
       const boardStr = board.length > 0 ? cardsToString(board) : '';
       const seedVal = getSeedValue() ?? 12345;
       
       setProgress(0);
-      callServerEquity(heroStr, boardStr, '', selectedTrials, seedVal)
+      callServerEquity(heroStr, villainStr, boardStr, '', selectedTrials, seedVal)
         .then(resp => {
           const elapsed = performance.now() - start;
           setCalcTime(elapsed);
           
           if (resp.ok && resp.equityPct !== undefined) {
             setUsedServer(true);
+            setVillainRangeUsed(resp.villainRange || villainStr);
             setIsCached(false);
             setResult({
               results: [
@@ -663,7 +689,7 @@ export function EquityCalculator() {
     
     for (const bh of benchHands) {
       try {
-        const resp = await callServerEquity(bh.hand, '', '', BENCH_TRIALS, seedVal);
+        const resp = await callServerEquity(bh.hand, '100%', '', '', BENCH_TRIALS, seedVal);
         if (resp.ok && resp.equityPct !== undefined) {
           lines.push(`${bh.label}: ${resp.equityPct.toFixed(3)}% (${resp.trials} trials, seed=${seedVal}, ${resp.elapsedMs}ms server)`);
         } else {
@@ -773,7 +799,33 @@ export function EquityCalculator() {
           </div>
         </div>
         
-        {(hasRanges || players.some(p => p.input.trim() === '100%')) && (
+        {players.length === 2 && players[0].cards.length === 5 && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-3 flex-wrap">
+              <Label className="text-sm shrink-0">{t('villainRange')}:</Label>
+              <div className="flex gap-1 flex-wrap">
+                {VILLAIN_RANGE_PRESETS.map(preset => {
+                  const currentVillain = players[1]?.input?.trim().toLowerCase() || '';
+                  const isActive = currentVillain === preset.value.toLowerCase();
+                  return (
+                    <Button
+                      key={preset.value}
+                      variant={isActive ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => handlePlayerInput(2, preset.value)}
+                      disabled={isCalculating}
+                      data-testid={`button-villain-range-${preset.value}`}
+                    >
+                      {preset.label}
+                    </Button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {(hasRanges || players.some(p => isVillainRangePattern(p.input.trim()))) && (
           <div className="space-y-3">
             <div className="flex items-center gap-3 flex-wrap">
               <Label className="text-sm shrink-0">{t('trialsLabel')}:</Label>
@@ -885,6 +937,11 @@ export function EquityCalculator() {
                   <Badge variant="default" className="bg-blue-600" data-testid="badge-server">
                     <Server className="w-3 h-3 mr-1" />
                     {t('engineLabel')}
+                  </Badge>
+                )}
+                {villainRangeUsed && villainRangeUsed !== '100%' && (
+                  <Badge variant="secondary" data-testid="badge-villain-range">
+                    vs {villainRangeUsed}
                   </Badge>
                 )}
                 {isCached && (
