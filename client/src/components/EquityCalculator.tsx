@@ -15,7 +15,8 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { PlayingCard } from './PlayingCard';
 import { CardChips } from './CardChip';
-import { Play, Trash2, Plus, RotateCcw, Calculator, ClipboardPaste, FlaskConical, Server, ChevronDown, ChevronUp, BarChart3 } from 'lucide-react';
+import { CardPickerModal } from './CardPickerModal';
+import { Play, Trash2, Plus, RotateCcw, Calculator, ClipboardPaste, FlaskConical, Server, ChevronDown, ChevronUp, BarChart3, Grid3X3 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/lib/i18n';
 
@@ -176,6 +177,7 @@ interface PlayerRowProps {
   player: PlayerInput;
   onInputChange: (id: number, input: string) => void;
   onRemove: (id: number) => void;
+  onPickerOpen: (id: number) => void;
   equity?: number;
   isWinner?: boolean;
   disabled?: boolean;
@@ -186,7 +188,7 @@ interface PlayerRowProps {
   need5CardsLabel: string;
 }
 
-function PlayerRow({ player, onInputChange, onRemove, equity, isWinner, disabled, allUsedCards, heroLabel, playerLabel, combosLabel, need5CardsLabel }: PlayerRowProps) {
+function PlayerRow({ player, onInputChange, onRemove, onPickerOpen, equity, isWinner, disabled, allUsedCards, heroLabel, playerLabel, combosLabel, need5CardsLabel }: PlayerRowProps) {
   const handleChange = (value: string) => {
     onInputChange(player.id, value);
   };
@@ -204,7 +206,7 @@ function PlayerRow({ player, onInputChange, onRemove, equity, isWinner, disabled
         {player.id === 1 ? heroLabel : `${playerLabel} ${player.id}`}
       </div>
       
-      <div className="flex-1">
+      <div className="flex-1 flex items-center gap-1">
         <Input
           value={player.input}
           onChange={(e) => handleChange(e.target.value)}
@@ -216,6 +218,18 @@ function PlayerRow({ player, onInputChange, onRemove, equity, isWinner, disabled
           disabled={disabled}
           data-testid={`input-player-${player.id}`}
         />
+        {!player.isRange && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => onPickerOpen(player.id)}
+            disabled={disabled}
+            className="shrink-0"
+            data-testid={`button-picker-player-${player.id}`}
+          >
+            <Grid3X3 className="w-4 h-4" />
+          </Button>
+        )}
       </div>
       
       <div className="flex gap-0.5 min-w-[140px] items-center">
@@ -300,6 +314,8 @@ export function EquityCalculator() {
   const [breakdownFilterBetter, setBreakdownFilterBetter] = useState(false);
   const [breakdownTab, setBreakdownTab] = useState<'cards' | 'byRank'>('cards');
   const [breakdownNormalize, setBreakdownNormalize] = useState(false);
+  const [boardPickerOpen, setBoardPickerOpen] = useState(false);
+  const [playerPickerOpen, setPlayerPickerOpen] = useState<number | null>(null);
   
   const allUsedCards = new Set<string>();
   for (const card of board) {
@@ -378,6 +394,42 @@ export function EquityCalculator() {
     if (players.length <= 2) return;
     setPlayers(prev => prev.filter(p => p.id !== id));
   };
+
+  const getDisabledCardsForBoard = useCallback(() => {
+    const disabled = new Set<string>();
+    for (const player of players) {
+      for (const card of player.cards) {
+        disabled.add(cardKey(card));
+      }
+    }
+    return disabled;
+  }, [players]);
+
+  const getDisabledCardsForPlayer = useCallback((playerId: number) => {
+    const disabled = new Set<string>();
+    for (const card of board) {
+      disabled.add(cardKey(card));
+    }
+    for (const player of players) {
+      if (player.id === playerId) continue;
+      for (const card of player.cards) {
+        disabled.add(cardKey(card));
+      }
+    }
+    return disabled;
+  }, [board, players]);
+
+  const handleBoardPickerConfirm = useCallback((cards: Card[]) => {
+    setBoard(cards);
+    const str = cards.map(c => `${c.rank}${c.suit}`).join('');
+    setBoardInput(str);
+  }, []);
+
+  const handlePlayerPickerConfirm = useCallback((playerId: number, cards: Card[]) => {
+    const str = cards.map(c => `${c.rank}${c.suit}`).join('');
+    handlePlayerInput(playerId, str);
+    setPlayerPickerOpen(null);
+  }, [handlePlayerInput]);
   
   const clearAll = () => {
     setBoard([]);
@@ -1093,7 +1145,7 @@ export function EquityCalculator() {
               ({t('preflop')}: 0 | {t('flop')}: 3 | {t('turn')}: 4 | {t('river')}: 5)
             </span>
           </div>
-          <div className="flex gap-2 items-center">
+          <div className="flex gap-2 items-center flex-wrap">
             <Input
               key={`board-${resetKey}`}
               value={boardInput}
@@ -1103,6 +1155,15 @@ export function EquityCalculator() {
               disabled={isCalculating}
               data-testid="input-board"
             />
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setBoardPickerOpen(true)}
+              disabled={isCalculating}
+              data-testid="button-board-picker"
+            >
+              <Grid3X3 className="w-4 h-4" />
+            </Button>
             <div className="flex gap-0.5 items-center">
               <CardChips cards={board} size="md" />
               {Array.from({ length: 5 - board.length }).map((_, i) => (
@@ -1144,6 +1205,7 @@ export function EquityCalculator() {
                   player={player}
                   onInputChange={handlePlayerInput}
                   onRemove={removePlayer}
+                  onPickerOpen={(id) => setPlayerPickerOpen(id)}
                   equity={playerResult?.equity}
                   isWinner={playerResult && playerResult.equity === maxEquity && maxEquity > 0}
                   disabled={isCalculating}
@@ -1467,6 +1529,32 @@ export function EquityCalculator() {
             {breakdownPanel}
           </div>
         )}
+
+        <CardPickerModal
+          open={boardPickerOpen}
+          onOpenChange={setBoardPickerOpen}
+          selectedCards={board}
+          onConfirm={handleBoardPickerConfirm}
+          disabledCards={getDisabledCardsForBoard()}
+          maxCards={5}
+          title={t('pickBoardCards')}
+        />
+
+        {playerPickerOpen !== null && (() => {
+          const player = players.find(p => p.id === playerPickerOpen);
+          if (!player) return null;
+          return (
+            <CardPickerModal
+              open={true}
+              onOpenChange={(open) => { if (!open) setPlayerPickerOpen(null); }}
+              selectedCards={player.cards}
+              onConfirm={(cards) => handlePlayerPickerConfirm(playerPickerOpen, cards)}
+              disabledCards={getDisabledCardsForPlayer(playerPickerOpen)}
+              maxCards={5}
+              title={`${t('pickHandCards')} — ${player.id === 1 ? t('hero') : `${t('player')} ${player.id}`}`}
+            />
+          );
+        })()}
           </CardContent>
         </UICard>
       </div>

@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { CardChip } from '@/components/CardChip';
 import { cn } from '@/lib/utils';
+import { useTranslation } from '@/lib/i18n';
 
 interface CardPickerModalProps {
   open: boolean;
@@ -52,6 +53,7 @@ export function CardPickerModal({
   maxCards,
   title,
 }: CardPickerModalProps) {
+  const { t } = useTranslation();
   const [selection, setSelection] = useState<Card[]>([]);
 
   useEffect(() => {
@@ -147,7 +149,7 @@ export function CardPickerModal({
             variant="ghost"
             onClick={handleClear}
           >
-            Clear
+            {t('clear')}
           </Button>
           <div className="flex items-center gap-2">
             <Button
@@ -155,7 +157,7 @@ export function CardPickerModal({
               variant="outline"
               onClick={handleCancel}
             >
-              Cancel
+              {t('cancel')}
             </Button>
             <Button
               data-testid="card-picker-confirm"
