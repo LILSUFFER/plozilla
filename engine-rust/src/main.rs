@@ -1395,6 +1395,99 @@ fn run_equity(args: &[String]) {
     }
 }
 
+fn run_build_rank_index(args: &[String]) {
+    let bin_file = parse_flag(args, "--bin")
+        .unwrap_or_else(|| "public/plo5_rankings_prod.bin".into());
+    let out_file = parse_flag(args, "--out")
+        .unwrap_or_else(|| "public/rank_index_all_2598960.u32".into());
+
+    eprintln!("╔══════════════════════════════════════════════╗");
+    eprintln!("║  Build Rank Index from Production Binary      ║");
+    eprintln!("╚══════════════════════════════════════════════╝");
+    eprintln!();
+    eprintln!("  Source: {}", bin_file);
+    eprintln!("  Output: {}", out_file);
+
+    let data = std::fs::read(&bin_file).expect("Cannot read production binary");
+    if data.len() < 68 {
+        panic!("Binary file too small");
+    }
+    let magic = std::str::from_utf8(&data[0..4]).unwrap_or("");
+    if magic != "PLO5" {
+        panic!("Invalid magic: {} (expected PLO5)", magic);
+    }
+
+    let num_hands = u32::from_le_bytes(data[8..12].try_into().unwrap()) as usize;
+    let expected_size = 64 + num_hands * 20;
+    if data.len() < expected_size {
+        panic!("Binary truncated: {} bytes, expected {}", data.len(), expected_size);
+    }
+
+    eprintln!("  Canonical hands in binary: {}", num_hands);
+
+    let mut canonical_equity: HashMap<[u8; 5], f32> = HashMap::with_capacity(num_hands);
+    for i in 0..num_hands {
+        let off = 64 + i * 20;
+        let cards: [u8; 5] = [data[off], data[off+1], data[off+2], data[off+3], data[off+4]];
+        let equity = f32::from_le_bytes(data[off+6..off+10].try_into().unwrap());
+        canonical_equity.insert(cards, equity);
+    }
+
+    eprintln!("  Loaded {} canonical equities", canonical_equity.len());
+
+    let total: u32 = 2598960;
+    let mut equities: Vec<f32> = vec![0.0; total as usize];
+    let mut missing = 0u32;
+
+    eprintln!("  Mapping all 2,598,960 combos to canonical equities...");
+    for idx in 0..total {
+        let hand = index_to_hand(idx);
+        let can = canonicalize(&hand);
+        if let Some(&eq) = canonical_equity.get(&can) {
+            equities[idx as usize] = eq;
+        } else {
+            missing += 1;
+        }
+    }
+
+    if missing > 0 {
+        eprintln!("  WARNING: {} combos had no canonical match!", missing);
+    }
+
+    let mut indices: Vec<u32> = (0..total).collect();
+    indices.sort_by(|&a, &b| {
+        equities[b as usize]
+            .partial_cmp(&equities[a as usize])
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let top5: Vec<String> = (0..5).map(|i| {
+        let idx = indices[i];
+        let hand = index_to_hand(idx);
+        let names: Vec<String> = hand.iter().map(|&c| card_name(c)).collect();
+        format!("#{}: idx={} eq={:.3}% {}", i+1, idx, equities[idx as usize] * 100.0, names.join(""))
+    }).collect();
+    let bot5: Vec<String> = (total as usize - 5..total as usize).map(|i| {
+        let idx = indices[i];
+        let hand = index_to_hand(idx);
+        let names: Vec<String> = hand.iter().map(|&c| card_name(c)).collect();
+        format!("#{}: idx={} eq={:.3}% {}", i+1, idx, equities[idx as usize] * 100.0, names.join(""))
+    }).collect();
+
+    eprintln!("\n  Top 5 ranked hands:");
+    for s in &top5 { eprintln!("    {}", s); }
+    eprintln!("  Bottom 5 ranked hands:");
+    for s in &bot5 { eprintln!("    {}", s); }
+
+    let mut out = Vec::with_capacity(total as usize * 4);
+    for &idx in &indices {
+        out.extend_from_slice(&idx.to_le_bytes());
+    }
+    std::fs::write(&out_file, &out).expect("Failed to write rank index");
+    eprintln!("\n  Wrote {} indices ({} bytes) to {}", total, out.len(), out_file);
+    eprintln!("  Done!");
+}
+
 fn run_precompute_all(args: &[String]) {
     let boards_n: u32 = parse_flag(args, "--boards")
         .and_then(|s| s.parse().ok()).unwrap_or(1000);
@@ -1879,6 +1972,7 @@ fn main() {
     match args[1].as_str() {
         "precompute" => run_precompute(&args[2..]),
         "precompute_all" => run_precompute_all(&args[2..]),
+        "build_rank_index" => run_build_rank_index(&args[2..]),
         "equity" => run_equity(&args[2..]),
         "breakdown" => run_breakdown(&args[2..]),
         "accuracy" => run_accuracy(&args[2..]),
@@ -1886,7 +1980,7 @@ fn main() {
         "validate" => run_validate(&args[2..]),
         "info" => run_info(),
         other => {
-            eprintln!("Unknown command: {}. Use precompute, precompute_all, equity, breakdown, accuracy, baseline, validate, or info.", other);
+            eprintln!("Unknown command: {}. Use precompute, precompute_all, build_rank_index, equity, breakdown, accuracy, baseline, validate, or info.", other);
             std::process::exit(1);
         }
     }
