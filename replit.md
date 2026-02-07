@@ -2,133 +2,7 @@
 
 ## Overview
 
-A browser-based 5-Card Omaha equity calculator similar to ProPokerTools Oracle. The calculator supports board input in valid poker states (Preflop: 0, Flop: 3, Turn: 4, River: 5 cards), multiple player hands (5 cards each), concatenated card notation (e.g., "7s6hJdQc8c"), and performs exhaustive equity calculations with accurate Omaha hand evaluation (exactly 2 hole cards + 3 board cards). Built as a client-side React TypeScript application.
-
-## Recent Changes (Feb 2026)
-- **Native Rust Engine for Hand Rankings** (Feb 2026): High-performance PLO5 ranking engine
-  - **Engine**: `engine-rust/` — native Rust CLI (`plo5_ranker`) with Two Plus Two lookup table
-  - **Commands**: precompute, equity, accuracy, baseline, validate, info, precompute_all, build_rank_index
-  - **Binary format**: PLO5 magic (4 bytes) + 64-byte header + 20 bytes/hand (134,459 hands = 2.69MB)
-    - Header: version, numHands, boardsProcessed, villainSamples, avgSamples, minSamples, maxSamples, timestamp
-    - Record: 5 card bytes + 1 combo count + 4 equity (f32) + 4 rank (u32) + 4 percentile (f32) + 2 reserved
-  - **Two modes**: `--boards full` (exhaustive C(47,5)=1,533,939 boards/hero) or `--boards N` (random board sampling)
-  - **Measured throughput**: ~929K showdowns/sec on 8-thread Replit (each showdown = 100 combo evals for hero + 100 for villain)
-  - **Full enumeration is infeasible**: C(47,5)×V=50×134K heroes = 10.3T showdowns → ~128 days at 929K/sec
-  - **Deterministic CRN mode** (default ON): Common Random Numbers for stable, reproducible rankings
-    - Pre-generates shared board scenarios from full 52-card deck with fixed seed
-    - Same scenarios reused for ALL 134K heroes → greatly reduces relative variance
-    - `--seed <u64>` (default 12345), `--crn on|off` (default on)
-    - Acceptance rate: ~59% of boards valid per hero (C(47,5)/C(52,5))
-    - Bitmap-based O(1) overlap checking for performance
-  - **Equity command**: `plo5_ranker equity --hand AcAdKhQh5s --trials 600000 --seed 12345 [--villain-range 100%|topN%] [--rank-file path] [--bin prod.bin]`
-  - **Villain range support**: `--villain-range 10%` restricts villain sampling to top N% of precomputed hand rankings
-  - **Sanity checks**: `validate_rank_index()` verifies top hand >60% equity, bottom <20% using prod binary; aborts with actionable error if corrupted
-  - **Dead card exclusion**: Range-restricted path uses `excluded_bm` bitmap (hero + board + dead) for proper villain rejection
-  - **Villain-first sampling**: Range mode samples villain FIRST (uniform from rank pool), then board from remaining cards
-  - **Top-K calculation**: Uses `floor()` with `max(1)` for consistent boundary behavior
-  - **build_rank_index**: Generates `rank_index_all_2598960.u32` from production binary (`plo5_rankings_prod.bin`)
-    - Maps all 2,598,960 combos through canonicalization to look up high-quality canonical equity
-    - Much more accurate than precompute_all (which used noisy MC estimates per combo)
-    - Usage: `plo5_ranker build_rank_index --bin public/plo5_rankings_prod.bin --out public/rank_index_all_2598960.u32`
-    - Runs in seconds (no Monte Carlo needed, pure lookup + sort)
-  - **Precompute all**: `plo5_ranker precompute_all --boards N --villain-samples M` computes equity for all 2,598,960 hands (legacy, superseded by build_rank_index)
-  - **Binary output**: `rank_index_all_2598960.u32` (10.4MB, hand indices sorted by equity desc)
-  - **Combinadic indexing**: `hand_to_index` / `index_to_hand` for bijective mapping of C(52,5) = 2,598,960 hands
-  - **Accuracy command**: `plo5_ranker accuracy --bin file.bin --trials 2000000 [--test-hands hand1,hand2]`
-  - **Card encoding conversion**: Rust uses suit×13+rank, Server uses rank×4+suit — converted during binary read
-  - **Scripts**: `scripts/vps_setup.sh` (system deps + Rust), `scripts/vps_run_stage1.sh`, `scripts/vps_run_stage2.sh` (CRN), `scripts/vps_precompute_all.sh`
-  - **Server**: pure file-based lookup only (`server/rankings-cache.ts`), reads `public/plo5_rankings_prod.bin`
-  - **Legacy JS scripts**: `scripts/precompute_rankings_quasi_exact.ts`, `scripts/precompute_canonical_rankings_v4.ts` (superseded)
-  - API: `/api/rankings` (paginated with search), `/api/rankings/status`, `/api/rankings/lookup`
-  - Frontend shows 134K canonical hands with combo count column
-  - Each canonical hand shows: rank, cards (canonical suits), combos (4-24), equity %, percentile
-- **Category Classification System for Rankings** (Feb 2026): Structural hand categorization
-  - Classification utility: `client/src/lib/hand-categories.ts`
-  - Pair types: unpaired, one_pair, two_pair, trips
-  - Suited types: double-suited (ds), single-suited (ss), other
-  - Unpaired subcategories: 5-card rundown, 4-card rundown, 3+ broadway, 2 broadway + low, ragged
-  - Collapsible sidebar tree UI with 3-level hierarchy
-  - Bulk loading: `/api/rankings/all` endpoint returns all 134K hands (~8MB JSON)
-  - Client-side classification runs once via useMemo, stored in Map for O(1) lookups
-  - Category filtering works alongside PPT search syntax
-  - Global rank always preserved (percentile from 134,459 total)
-  - EN/RU translations for all category labels
-- **Rankings Search with ProPokerTools Syntax**: Full range syntax for search
-  - Parser in `client/src/lib/rankings-search.ts`
-  - Supports: exclusions (!), ascending/descending ranges (+/-), comma-separated OR, suit filters (ds/ss/$ds/$ss), rank macros ($B, $M, $Z, etc.), $np (no pairs), brackets ([A-K]), percentile filtering
-  - Examples: AA, AA!KK, KK+, TT+ds, AA,KK, 20%, 5%-10%
-- **EN/RU Bilingual Support**: Full internationalization with language switching
-  - React Context-based i18n system (`client/src/lib/i18n.tsx`)
-  - `useTranslation` hook for all components, `I18nProvider` wraps entire app
-  - LanguageToggle component in all page headers (shows "RU" when English, "EN" when Russian)
-  - localStorage persistence of language preference (`plozilla-lang`)
-  - All pages fully translated: Landing, AppPage, TableEvPage, LearnPage
-  - All components translated: EquityCalculator, TableEvAnalyzer (including info dialog)
-  - Translation keys use template `{n}` placeholders replaced with `.replace('{n}', value)`
-- **SaaS Architecture**: Restructured as authenticated web application
-  - Landing page at / (public) with GTOWizard-style design
-  - Equity calculator at /app (requires authentication)
-  - Table EV Analyzer at /app (Table EV tab) - calculates expected value based on table composition
-  - Google OAuth integration (passport-google-oauth20)
-  - PostgreSQL session storage with user profiles
-  - User avatar and logout functionality in app header
-  - Configured for plozilla.com domain
-- **Table EV Analyzer**: Calculate EV based on fish at table
-  - 6-max table visualization with clickable seats
-  - Player types: Hero, Reg, Fish, Empty
-  - Position coefficients (BTN 1.5x, CO 1.1x, etc.)
-  - VPIP sliders for fish players
-  - Formula: (fishLoss - tableRake) / N_regs * positionCoef - heroRake
-- **Board Validation**: Only valid poker states allowed (0, 3, 4, or 5 cards)
-  - Preflop: 0 cards, Flop: 3 cards, Turn: 4 cards, River: 5 cards
-  - Invalid states (1-2 cards) show error message and disable calculation
-  - Label shows valid options: "(Preflop: 0 | Flop: 3 | Turn: 4 | River: 5)"
-- **Range Equity Calculations**: Monte Carlo with 600,000 target samples
-  - Direct weighted sampling for efficient hand generation
-  - Independent sampling with conflict rejection for unbiased joint distribution
-  - ~100 seconds for AA vs JJ preflop (3.6x faster than previous version)
-  - Expected accuracy: within ~0.8% of ProPokerTools Oracle reference values
-  - Progress bar shows real-time calculation percentage
-- **Hand History Import**: Paste hand histories from clipboard with street selection
-  - Parser supports PLO-5 formats with space-separated or concatenated cards
-  - Extracts hero hand, showdown hands, and board cards at each street
-  - Street selection dialog to choose preflop/flop/turn/river for analysis
-  - Handles "Dealt to Hero [cards]", "shows [cards]", and board markers
-- **Full ProPokerTools Range Syntax Support**: Complete Generic Syntax implementation
-  - **Hand counting**: AA = 108,336 hands (all 5-card hands with at least 2 aces)
-  - **Suit variables**: x, y, z, w for suited patterns (AxAyxy = double-suited aces)
-  - **Rank variables**: R, O, N for patterns (RRON = one pair hand)
-  - **Wildcards**: * for any card
-  - **Combining**: comma (OR), colon (AND), bang (NOT) operators
-  - **Rank spans**: KQJT-T987, KK+, T8+, 664-
-  - **Rank brackets**: [A-J], [2,3,4], [A,2,3,4,5]
-  - **No-pair constraint**: curly braces {AKQJ} for unpaired cards
-  - **Built-in macros**: $ds (double-suited), $ss (single-suited), $np (no pairs), $B (big), $M (middle), $Z (small), $L (low), $W (wheel), $R (broadway), $F (face), $0g/$1g/$2g (gap rundowns)
-  - **Weighted ranges**: AA@10, KK@8 for frequency weighting
-  - **Percent ranges**: 15%, 5%-10% (approximate counts)
-  - Uses Monte Carlo sampling for range calculations
-  - UI shows "X combos" badge for ranges
-- **IndexedDB Caching with Suit Canonicalization**: 2-player preflop results are cached
-  - First calculation: ~4-5s for 850,668 runouts
-  - Cached lookups: ~10-15ms (instant)
-  - Suit canonicalization: hands like AsKs vs 2c3c share cache with AhKh vs 2d3d
-  - UI shows green "Cached" badge for cached results
-- **Two Plus Two Lookup Table**: 10MB precomputed hand ranks for O(1) evaluation
-- WebAssembly (AssemblyScript) poker hand evaluator
-- Exhaustive enumeration for specific hands (like ProPokerTools Oracle):
-  - Preflop (no board): 850,668 runouts
-  - Flop: ~741 runouts in ~6ms
-  - Turn/River: few dozen runouts in <1ms
-- WASM optimizations:
-  - Correct Bose-Nelson 5-element sorting network for combinatorial indexing
-  - Global static arrays to avoid allocations in hot loops
-  - @inline decorators on critical functions
-- **Fixed WASM sorting network bug** (Feb 2026): The getIdx function's sorting network was incorrect (11 comparisons, produced unsorted output for certain inputs). Replaced with correct Bose-Nelson network (9 comparisons). This was causing wrong equity calculations for specific hands.
-- Results match ProPokerTools Oracle exactly (52.128% vs 52.128%)
-- UI shows "X runouts (exact)" for all calculations
-- Added visible timing display showing calculation time
-- Fixed parseCardsConcat to correctly handle "10" notation (10h = Ten of hearts)
-- Improved player hand validation (2-5 cards per player)
+Plozilla is a browser-based 5-Card Omaha equity calculator, similar to ProPokerTools Oracle, designed to provide accurate poker equity calculations. It supports various poker states (preflop, flop, turn, river), multiple player hands using concatenated card notation, and performs exhaustive equity calculations with precise Omaha hand evaluation (exactly 2 hole cards + 3 board cards). Built as a client-side React TypeScript application, Plozilla aims to offer a robust and user-friendly tool for poker enthusiasts, leveraging a high-performance native Rust engine for hand rankings.
 
 ## User Preferences
 
@@ -138,68 +12,69 @@ Preferred communication style: Simple, everyday language.
 
 ### Frontend Architecture
 - **Framework**: React 18 with TypeScript
-- **Routing**: Wouter (lightweight React router)
+- **Routing**: Wouter
 - **State Management**: TanStack React Query for server state, React useState for local state
-- **Styling**: Tailwind CSS with CSS variables for theming (dark/light mode support)
-- **UI Components**: shadcn/ui component library built on Radix UI primitives
-- **Build Tool**: Vite for development and production builds
+- **Styling**: Tailwind CSS with CSS variables (dark/light mode support)
+- **UI Components**: shadcn/ui built on Radix UI primitives
+- **Build Tool**: Vite
 
 ### Backend Architecture
 - **Framework**: Express 5 with TypeScript
-- **Runtime**: Node.js with tsx for TypeScript execution
-- **API Pattern**: RESTful API with `/api` prefix for all endpoints
-- **Static Serving**: Express static middleware serves the built React app in production
+- **Runtime**: Node.js with tsx
+- **API Pattern**: RESTful API (`/api` prefix)
+- **Static Serving**: Express static middleware for React app
 
 ### Core Domain Logic
-- **WASM Evaluator** (`assembly/index.ts`): AssemblyScript poker hand evaluator compiled to WebAssembly, handles full Monte Carlo simulation
-- **WASM Integration** (`client/src/lib/wasm-equity.ts`, `client/src/lib/wasm-loader.ts`): Loads WASM module and provides JavaScript fallback
-- **Poker Evaluator** (`client/src/lib/poker-evaluator.ts`): JavaScript implementation for hand evaluation (used as fallback)
-- **Equity Calculator** (`client/src/lib/equity-calculator.ts`): Calculates equity/win probability between multiple player hands
+- **Native Rust Engine**: `engine-rust/` provides a high-performance PLO5 ranking engine (`plo5_ranker`) for precomputing and calculating equity, utilizing a Two Plus Two lookup table. This engine supports various commands for precomputation, equity calculation, accuracy validation, and range analysis. It uses a custom binary format for storing hand data and employs a deterministic Common Random Numbers (CRN) mode for stable, reproducible rankings.
+- **WASM Evaluator**: AssemblyScript poker hand evaluator (`assembly/index.ts`) compiled to WebAssembly for Monte Carlo simulations.
+- **WASM Integration**: Manages loading and providing JavaScript fallback for the WASM module.
+- **Poker Evaluator**: JavaScript implementation for hand evaluation (fallback).
+- **Equity Calculator**: Handles equity/win probability calculations.
+- **Category Classification System**: Classifies hands into structural categories (pair types, suited types, rundown types) for improved search and filtering.
+- **Rankings Search**: Implements ProPokerTools syntax for advanced hand range searching, including exclusions, suit filters, rank macros, and percentile filtering.
+- **Hand History Import**: Parses hand histories from the clipboard, extracting hero hands, showdown hands, and board cards for analysis at different streets.
+- **Table EV Analyzer**: Calculates expected value based on table composition (player types, positions, VPIP).
+- **Board Validation**: Ensures only valid poker states (0, 3, 4, or 5 cards) are used for calculations.
+- **Range Equity Calculations**: Utilizes Monte Carlo sampling for efficient, unbiased hand generation.
+- **IndexedDB Caching**: Caches 2-player preflop results with suit canonicalization for instant lookups.
+- **Two Plus Two Lookup Table**: 10MB precomputed hand ranks for O(1) evaluation.
 
 ### Data Storage
-- **ORM**: Drizzle ORM configured for PostgreSQL
-- **Schema**: Located in `shared/schema.ts` - currently contains a basic users table
-- **Storage Pattern**: Repository pattern with `IStorage` interface in `server/storage.ts`, with in-memory implementation (`MemStorage`) as default
+- **ORM**: Drizzle ORM for PostgreSQL.
+- **Schema**: Defined in `shared/schema.ts` (currently basic users table).
+- **Storage Pattern**: Repository pattern with `IStorage` interface, with an in-memory implementation (`MemStorage`) as default.
 
 ### Build System
-- **Client Build**: Vite bundles React app to `dist/public`
-- **Server Build**: esbuild bundles server code to `dist/index.cjs`
-- **Development**: Hot module replacement via Vite dev server proxied through Express
+- **Client Build**: Vite bundles React app to `dist/public`.
+- **Server Build**: esbuild bundles server code to `dist/index.cjs`.
+- **Development**: Hot module replacement via Vite dev server proxied through Express.
 
 ### Project Structure
-```
-├── assembly/         # AssemblyScript source for WASM
-│   └── index.ts      # Hand evaluator and Monte Carlo loop
-├── client/           # React frontend
-│   ├── public/
-│   │   └── evaluator.wasm  # Compiled WASM module (8.7KB)
-│   └── src/
-│       ├── components/   # UI components (PlayingCard, EquityCalculator, etc.)
-│       ├── lib/          # Core logic (wasm-equity, poker-evaluator)
-│       └── pages/        # Route components
-├── server/           # Express backend
-├── shared/           # Shared types and schema
-└── asconfig.json     # AssemblyScript compiler config
-```
+- `assembly/`: AssemblyScript source for WASM.
+- `client/`: React frontend with components, core logic, and pages.
+- `server/`: Express backend.
+- `shared/`: Shared types and schema.
+- `engine-rust/`: Native Rust ranking engine.
 
 ## External Dependencies
 
 ### Database
-- **PostgreSQL**: Configured via `DATABASE_URL` environment variable
-- **Drizzle Kit**: Database migrations stored in `/migrations`
+- **PostgreSQL**
+- **Drizzle Kit** (for migrations)
 
 ### UI Component Libraries
-- **Radix UI**: Headless UI primitives (dialog, popover, tabs, etc.)
-- **shadcn/ui**: Pre-built component styles on top of Radix
+- **Radix UI**
+- **shadcn/ui**
 
 ### Key NPM Packages
-- **@tanstack/react-query**: Data fetching and caching
-- **drizzle-orm** / **drizzle-zod**: Database ORM with Zod schema validation
-- **class-variance-authority**: Component variant styling
-- **lucide-react**: Icon library
-- **wouter**: Lightweight routing
+- **@tanstack/react-query**
+- **drizzle-orm** / **drizzle-zod**
+- **class-variance-authority**
+- **lucide-react**
+- **wouter**
+- **passport-google-oauth20** (for Google OAuth)
 
 ### Development Tools
-- **Vite**: Frontend build tool with HMR
-- **tsx**: TypeScript execution for Node.js
-- **esbuild**: Fast bundling for production server build
+- **Vite**
+- **tsx**
+- **esbuild**
