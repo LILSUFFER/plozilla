@@ -259,7 +259,10 @@ export async function runEquity(req: EquityRequest): Promise<EquityResponse> {
   activeJobs++;
   try {
     let result: EquityResponse;
-    if (REMOTE_URL) {
+    const useLocal = checkBinaryAvailable() && !FORCE_REMOTE;
+    if (useLocal) {
+      result = await spawnEquity(req.hero, villain, board, dead, trials, seed);
+    } else if (REMOTE_URL) {
       result = await remoteEquity(req.hero, villain, board, dead, trials, seed);
     } else {
       result = await spawnEquity(req.hero, villain, board, dead, trials, seed);
@@ -550,7 +553,10 @@ export async function runBreakdown(req: BreakdownRequest): Promise<BreakdownResp
   activeJobs++;
   try {
     let result: BreakdownResponse;
-    if (REMOTE_URL) {
+    const useLocal = checkBinaryAvailable() && !FORCE_REMOTE;
+    if (useLocal) {
+      result = await spawnBreakdown(req);
+    } else if (REMOTE_URL) {
       result = await remoteBreakdown(req);
     } else {
       result = await spawnBreakdown(req);
@@ -677,7 +683,7 @@ export function getEquityCacheStats() {
     size: cache.size,
     activeJobs,
     maxConcurrent: MAX_CONCURRENT,
-    mode: REMOTE_URL ? "remote" : "local",
+    mode: (checkBinaryAvailable() && !FORCE_REMOTE) ? "local" : (REMOTE_URL ? "remote" : "local"),
     forceRemote: FORCE_REMOTE,
     rankFileAvailable: isRankFileAvailable(),
   };
@@ -722,7 +728,7 @@ export function getEngineStatus() {
     rankFile: { path: RANK_FILE, available: rankFile, expectedSize: 2598960 * 4 },
     prodBin: { path: PROD_BIN, available: prodBin },
     engine: {
-      mode: REMOTE_URL ? "remote" : "local",
+      mode: (checkBinaryAvailable() && !FORCE_REMOTE) ? "local" : (REMOTE_URL ? "remote" : "local"),
       remoteUrl: REMOTE_URL || null,
       forceRemote: FORCE_REMOTE,
       maxConcurrent: MAX_CONCURRENT,
